@@ -16,13 +16,19 @@ const ROLES = [
 ];
 
 const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => {
+  console.log('[CAMPFIRE] Initializing with peers:', sessionData.peers);
   const [currentPeers, setCurrentPeers] = useState(sessionData.peers);
   const sortedPeers = [...currentPeers].sort();
 
-  if (!socket.id) return <div>Connecting...</div>;
+  if (!socket.id) {
+    console.log('[CAMPFIRE] Waiting for socket.id...');
+    return <div className="view-container"><h2>Connecting to the group...</h2></div>;
+  }
 
   const myIndex = sortedPeers.indexOf(socket.id);
-  const role = ROLES[myIndex % ROLES.length];
+  // Safety check for role indexing
+  const roleIndex = myIndex >= 0 ? myIndex % ROLES.length : 0;
+  const role = ROLES[roleIndex];
 
   const [flagged, setFlagged] = useState<string[]>([]);
   const [speakingPeers, setSpeakingPeers] = useState<{ [key: string]: number }>({});

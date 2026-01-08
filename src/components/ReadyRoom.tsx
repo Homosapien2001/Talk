@@ -13,6 +13,7 @@ const ReadyRoom: React.FC<ReadyRoomProps> = ({ socket }) => {
 
   useEffect(() => {
     socket.on('room-update', (data: { participants: number, readyCount: number }) => {
+      console.log('[READYROOM] room-update:', data);
       setParticipantsCount(data.participants);
       setReadyCount(data.readyCount);
     });
@@ -24,6 +25,7 @@ const ReadyRoom: React.FC<ReadyRoomProps> = ({ socket }) => {
 
   const handleToggleReady = () => {
     const nextReady = !isReady;
+    console.log('[READYROOM] Toggling ready to:', nextReady);
     setIsReady(nextReady);
     socket.emit('toggle-ready', nextReady);
   };

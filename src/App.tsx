@@ -19,6 +19,7 @@ function App() {
     setSocket(newSocket);
 
     newSocket.on('start-session', (data: { roomID: string, peers: string[], duration?: number }) => {
+      console.log('[APP] Received start-session:', data);
       setSessionData({
         roomID: data.roomID,
         peers: data.peers,

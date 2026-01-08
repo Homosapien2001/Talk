@@ -94,29 +94,42 @@ io.on("connection", (socket) => {
             });
 
             // Trigger session start if everyone is ready and room is full
-            if (rooms[currentRoomID].participants.length === ROOM_SIZE && currentReadyCount === ROOM_SIZE) {
-                console.log(`Room ${currentRoomID}: Everyone ready. Starting session.`);
+            if (rooms[currentRoomID].participants.length >= ROOM_SIZE && currentReadyCount >= ROOM_SIZE) {
+                console.log(`[SESSION] Room ${currentRoomID}: Everyone ready. Emitting start-session to ${rooms[currentRoomID].participants.length} peers.`);
                 const sessionDuration = 15 * 60 * 1000; // 15 minutes
 
-                io.to(currentRoomID).emit("start-session", {
+                const startData = {
                     roomID: currentRoomID,
                     peers: rooms[currentRoomID].participants,
                     duration: sessionDuration
-                });
+                };
+
+                io.to(currentRoomID).emit("start-session", startData);
+                console.log(`[SESSION] start-session emitted with data:`, JSON.stringify(startData));
+
+                // Cleanup room structure to prevent further joins or ready toggles during session
+                // We keep it in a separate sessions object if we need persistence, but for now we just let it run
+                const sessionRoomID = currentRoomID;
 
                 // Session lifecycle timers
                 setTimeout(() => {
-                    io.to(currentRoomID).emit("session-ending", { remaining: 2 * 60 * 1000 });
+                    console.log(`[SESSION] Room ${sessionRoomID}: 2 minutes remaining notification.`);
+                    io.to(sessionRoomID).emit("session-ending", { remaining: 2 * 60 * 1000 });
                 }, sessionDuration - 2 * 60 * 1000);
 
                 setTimeout(() => {
-                    io.to(currentRoomID).emit("session-dissolved");
-                    // Cleanup room
-                    if (rooms[currentRoomID]) {
-                        delete rooms[currentRoomID];
+                    console.log(`[SESSION] Room ${sessionRoomID}: Session dissolved.`);
+                    io.to(sessionRoomID).emit("session-dissolved");
+                    if (rooms[sessionRoomID]) {
+                        delete rooms[sessionRoomID];
                     }
                 }, sessionDuration);
+
+                // Optional: Prevent anyone else from joining this specific room ID now that it's "live"
+                // delete rooms[currentRoomID]; // But be careful about readyStates if needed
             }
+        } else {
+            console.log(`[ERROR] toggle-ready received but room ${currentRoomID} not found or stale.`);
         }
     });
 
