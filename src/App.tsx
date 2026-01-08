@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { io, Socket } from 'socket.io-client';
 import Lobby from './components/Lobby';
 import ReadyRoom from './components/ReadyRoom';
