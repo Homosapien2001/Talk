@@ -227,7 +227,23 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
           </div>
 
           <div className="participants-ring">
-            <div className={`fire-core pulse ${isEnding ? 'dying' : ''}`}></div>
+            <div className={`fire-pit ${isEnding ? 'dying' : ''}`}>
+              <div className="logs">
+                <div className="log"></div>
+                <div className="log"></div>
+                <div className="log"></div>
+              </div>
+              <div className="fire-core"></div>
+              <div className="sparks">
+                {[...Array(12)].map((_, i) => (
+                  <div key={i} className="spark" style={{
+                    left: `${Math.random() * 100}%`,
+                    animationDelay: `${Math.random() * 2}s`,
+                    width: `${2 + Math.random() * 3}px`
+                  }} />
+                ))}
+              </div>
+            </div>
             {sortedPeers.map((peerId, i) => {
               const isMe = peerId === socket.id;
               const displayIndex = (i - myIndex + sortedPeers.length) % sortedPeers.length;
@@ -280,37 +296,56 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
         .role-card .instruction { margin: 0; font-size: 0.85rem; opacity: 0.8; }
         .timer { font-family: monospace; font-size: 1.5rem; color: hsl(var(--accent-orange)); font-weight: 700; }
         .participants-ring { position: relative; width: 340px; height: 340px; display: flex; align-items: center; justify-content: center; margin-top: auto; margin-bottom: auto; }
+        .fire-pit { position: relative; width: 100px; height: 100px; display: flex; align-items: flex-end; justify-content: center; }
+        
+        .logs { position: absolute; bottom: 0; width: 100%; height: 30px; display: flex; justify-content: center; gap: 4px; z-index: 2; }
+        .log { height: 12px; width: 40px; background: linear-gradient(to bottom, #5d4037, #3e2723); border-radius: 4px; border: 1px solid #2d1b18; box-shadow: inset 0 0 5px rgba(0,0,0,0.5); }
+        .log:nth-child(1) { transform: rotate(-15deg) translateY(5px); }
+        .log:nth-child(2) { transform: rotate(5deg) translateY(0); width: 45px; }
+        .log:nth-child(3) { transform: rotate(20deg) translateY(8px); position: absolute; left: 20px; }
+
         .fire-core { 
-          width: 80px; height: 80px; 
-          background: radial-gradient(circle at 50% 20%, #fff 0%, #ffdf00 20%, #ff8c00 50%, #ff4500 100%); 
-          border-radius: 50% 50% 20% 20%; 
-          filter: blur(8px); 
-          box-shadow: 0 0 20px #ff4500, 0 0 60px #ff8c00, 0 -20px 40px #ffdf00;
-          animation: flicker 0.15s infinite alternate;
+          width: 80px; height: 90px; 
+          background: radial-gradient(circle at 50% 10%, #fff 0%, #ffdf00 25%, #ff8c00 50%, #ff4500 100%); 
+          border-radius: 50% 50% 30% 30%; 
+          filter: blur(6px); 
+          box-shadow: 0 0 20px #ff4500, 0 0 60px rgba(255,140,0,0.4), 0 -30px 50px rgba(255,223,0,0.3);
+          animation: flicker 0.1s infinite alternate;
           position: relative;
+          z-index: 3;
+          bottom: 10px;
         }
-        .fire-core::after {
-          content: '';
+
+        .sparks { position: absolute; top: -100px; left: 0; width: 100%; height: 200px; pointer-events: none; z-index: 4; }
+        .spark {
           position: absolute;
-          top: 10%; left: 10%; width: 80%; height: 80%;
-          background: radial-gradient(circle at center, #fff 0%, transparent 70%);
-          filter: blur(4px);
-          opacity: 0.6;
-          animation: flare 2s infinite ease-in-out;
+          bottom: 20px;
+          height: 3px;
+          background: #ffdf00;
+          border-radius: 50%;
+          opacity: 0;
+          filter: blur(1px);
+          box-shadow: 0 0 6px #ffdf00;
+          animation: float-spark 2s infinite ease-out;
         }
+
+        @keyframes float-spark {
+          0% { transform: translateY(0) translateX(0) scale(1); opacity: 0; }
+          10% { opacity: 1; }
+          100% { transform: translateY(-120px) translateX(20px) scale(0); opacity: 0; }
+        }
+
         @keyframes flicker {
-          0% { transform: scale(1) rotate(-1deg); filter: blur(8px) brightness(1); }
-          100% { transform: scale(1.05) rotate(1deg); filter: blur(6px) brightness(1.2); }
+          0% { transform: scale(1) rotate(-1deg) skewX(-2deg); filter: blur(6px) brightness(1); }
+          100% { transform: scale(1.08) rotate(1deg) skewX(2deg); filter: blur(5px) brightness(1.3); }
         }
-        @keyframes flare {
-          0%, 100% { transform: translateY(0) scale(1); opacity: 0.4; }
-          50% { transform: translateY(-15px) scale(1.2); opacity: 0.8; }
-        }
+
         .participant-node { position: absolute; display: flex; flex-direction: column; align-items: center; gap: 0.8rem; }
-        .avatar { width: 65px; height: 65px; display: flex; align-items: center; justify-content: center; position: relative; transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
-        .cartoon-char { font-size: 3rem; filter: drop-shadow(0 0 10px rgba(0,0,0,0.5)); }
-        .avatar.speaking { transform: scale(1.25); filter: drop-shadow(0 0 20px hsla(var(--accent-orange), 0.8)); }
-        .you-label, .peer-label { position: absolute; bottom: -1rem; font-size: 0.7rem; font-weight: 700; color: hsla(var(--foreground), 0.9); background: rgba(0,0,0,0.6); padding: 2px 8px; border-radius: 12px; white-space: nowrap; backdrop-filter: blur(4px); }
+        .avatar { width: 65px; height: 65px; display: flex; align-items: center; justify-content: center; position: relative; transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        .cartoon-char { font-size: 3.2rem; filter: drop-shadow(0 0 8px rgba(0,0,0,0.6)); transition: transform 0.2s; }
+        .avatar.speaking { transform: scale(1.3) translateY(-10px); z-index: 100; }
+        .avatar.speaking .cartoon-char { filter: drop-shadow(0 0 15px hsla(var(--accent-orange), 0.9)); }
+        .you-label, .peer-label { position: absolute; bottom: -1rem; font-size: 0.7rem; font-weight: 800; color: #fff; background: rgba(0,0,0,0.7); padding: 2px 10px; border-radius: 20px; white-space: nowrap; border: 1px solid rgba(255,255,255,0.15); box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
         .audio-barrier { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.9); z-index: 1000; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(20px); }
         .barrier-content { padding: 3rem; max-width: 400px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 1.5rem; border: 1px solid hsla(var(--accent-orange), 0.3); border-radius: 2rem; background: rgba(24,24,27,0.8); }
         .icon-large { font-size: 3rem; }
