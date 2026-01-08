@@ -17,6 +17,8 @@ const ROLES = [
   { title: "The Listener", description: "Your job is to ask follow-up questions.", instruction: "Listen closely and dig deeper." },
 ];
 
+const CHARACTERS = ["🦊", "🐻", "🐼", "🐨", "🐸", "🐷", "🐯", "🦁", "🐧", "🦉"];
+
 const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => {
   const [currentPeers, setCurrentPeers] = useState(sessionData.peers);
   const sortedPeers = [...currentPeers].sort();
@@ -235,6 +237,7 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
               return (
                 <div key={peerId} className="participant-node" style={{ transform: `rotate(${displayIndex * (360 / sortedPeers.length)}deg) translateY(-140px) rotate(-${displayIndex * (360 / sortedPeers.length)}deg)` }}>
                   <div className={`avatar glass ${isSpeaking ? 'speaking' : ''}`}>
+                    <span className="cartoon-char">{CHARACTERS[i % CHARACTERS.length]}</span>
                     {isMe && <span className="you-label">You</span>}
                     {!isMe && <span className="peer-label">{`P${i + 1}`}</span>}
                   </div>
@@ -268,18 +271,21 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
 
       <style dangerouslySetInnerHTML={{
         __html: `
-        .campfire-view { position: relative; height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; background: radial-gradient(circle at center, #1a0a05 0%, #050505 100%); }
-        .top-bar { position: absolute; top: 2rem; left: 0; right: 0; display: flex; justify-content: space-between; padding: 0 2rem; z-index: 10; }
-        .session-info, .timer-container { padding: 1rem 1.5rem; border-radius: 1.5rem; background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); }
-        .role-card .label { font-size: 0.7rem; color: hsla(var(--accent-orange), 0.7); font-weight: 700; margin-bottom: 0.2rem; display: block; }
+        .campfire-view { position: relative; height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding-top: 10rem; padding-bottom: 2rem; overflow: hidden; background: radial-gradient(circle at center, #1a0a05 0%, #050505 100%); }
+        .top-bar { position: absolute; top: 1.5rem; left: 0; right: 0; display: flex; justify-content: center; gap: 1rem; padding: 0 1rem; z-index: 10; pointer-events: none; }
+        .session-info, .timer-container { pointer-events: auto; padding: 1rem 1.5rem; border-radius: 1.5rem; background: rgba(255,255,255,0.05); backdrop-filter: blur(15px); border: 1px solid rgba(255,255,255,0.1); width: 100%; max-width: 400px; }
+        .timer-container { width: auto; min-width: 120px; text-align: center; }
+        .role-card .label { font-size: 0.7rem; color: hsla(var(--accent-orange), 0.7); font-weight: 700; margin-bottom: 0.2rem; display: block; text-transform: uppercase; letter-spacing: 0.05em; }
         .role-card h3 { margin: 0; color: hsl(var(--accent-orange)); font-size: 1.2rem; }
-        .timer { font-family: monospace; font-size: 1.5rem; color: hsl(var(--accent-orange)); }
-        .participants-ring { position: relative; width: 300px; height: 300px; display: flex; align-items: center; justify-content: center; }
-        .fire-core { width: 60px; height: 60px; background: radial-gradient(circle at center, #ff8c00 0%, #ff4500 100%); border-radius: 50%; filter: blur(10px); }
-        .participant-node { position: absolute; display: flex; flex-direction: column; align-items: center; gap: 0.5rem; }
-        .avatar { width: 50px; height: 50px; border-radius: 50%; border: 2px solid hsla(var(--foreground), 0.1); background: rgba(255,255,255,0.05); }
-        .avatar.speaking { border-color: hsl(var(--accent-orange)); box-shadow: 0 0 20px hsla(var(--accent-orange), 0.5); }
-        .you-label, .peer-label { position: absolute; top: -1.2rem; font-size: 0.7rem; color: hsla(var(--foreground), 0.5); }
+        .role-card .instruction { margin: 0; font-size: 0.85rem; opacity: 0.8; }
+        .timer { font-family: monospace; font-size: 1.5rem; color: hsl(var(--accent-orange)); font-weight: 700; }
+        .participants-ring { position: relative; width: 340px; height: 340px; display: flex; align-items: center; justify-content: center; margin-top: auto; margin-bottom: auto; }
+        .fire-core { width: 80px; height: 80px; background: radial-gradient(circle at center, #ff8c00 0%, #ff4500 100%); border-radius: 50%; filter: blur(15px); box-shadow: 0 0 40px #ff4500; }
+        .participant-node { position: absolute; display: flex; flex-direction: column; align-items: center; gap: 0.8rem; }
+        .avatar { width: 65px; height: 65px; border-radius: 50%; border: 2px solid hsla(var(--foreground), 0.1); background: rgba(255,255,255,0.08); display: flex; align-items: center; justify-content: center; position: relative; }
+        .cartoon-char { font-size: 2.2rem; }
+        .avatar.speaking { border-color: hsl(var(--accent-orange)); box-shadow: 0 0 30px hsla(var(--accent-orange), 0.6); transform: scale(1.1); transition: all 0.2s ease; }
+        .you-label, .peer-label { position: absolute; top: -1.4rem; font-size: 0.75rem; font-weight: 600; color: hsla(var(--foreground), 0.8); background: rgba(0,0,0,0.4); padding: 2px 8px; border-radius: 10px; }
         .audio-barrier { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.9); z-index: 1000; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(20px); }
         .barrier-content { padding: 3rem; max-width: 400px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 1.5rem; border: 1px solid hsla(var(--accent-orange), 0.3); border-radius: 2rem; background: rgba(24,24,27,0.8); }
         .icon-large { font-size: 3rem; }
