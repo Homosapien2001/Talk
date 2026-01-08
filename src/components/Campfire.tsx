@@ -32,6 +32,9 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
 
   const [audioEnabled, setAudioEnabled] = useState(false);
   const [audioBlocked, setAudioBlocked] = useState(false);
+  // Debug state to see what's happening
+  const [debugStatus, setDebugStatus] = useState('Initializing...');
+
   const [flagged, setFlagged] = useState<string[]>([]);
   const [speakingPeers, setSpeakingPeers] = useState<{ [key: string]: number }>({});
   const [timeLeft, setTimeLeft] = useState(sessionData.duration);
@@ -39,6 +42,15 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
   const peersRef = useRef<{ [key: string]: any }>({});
   const localStreamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+
+  useEffect(() => {
+    const updateDebug = () => {
+      const ctx = audioContextRef.current;
+      setDebugStatus(`Ctx: ${ctx?.state || 'N/A'} | Blocked: ${audioBlocked} | Peers: ${currentPeers.length}`);
+    };
+    const interval = setInterval(updateDebug, 1000);
+    return () => clearInterval(interval);
+  }, [audioBlocked, currentPeers]);
 
   useEffect(() => {
     // Session Timer Interval
@@ -293,32 +305,41 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
       {audioBlocked && (
         <div className="audio-barrier">
           <div className="barrier-content glass float">
-            <h3>Audio is Muted</h3>
-            <p className="text-secondary">Browser blocked the sound. Tap below to hear the group.</p>
-            <button className="btn btn-primary pulse" onClick={() => {
-              console.log('[CAMPFIRE] Manual audio activation triggered');
+            <div className="icon-large">🔊</div>
+            <h3>Can you hear them?</h3>
+            <p className="text-secondary">Browser is blocking audio output. Tap the button below to join the conversation.</p>
+            <button className="btn btn-primary pulse" style={{ width: '100%' }} onClick={() => {
+              console.log('[CAMPFIRE] Forced audio activation');
               const audios = document.querySelectorAll('audio');
               audios.forEach(a => {
-                a.muted = false; // Just in case
-                a.play().catch(err => console.error('[CAMPFIRE] Audio play failed after tap:', err));
+                a.muted = false;
+                a.volume = 1.0;
+                a.play().catch(e => console.error('[CAMPFIRE] Audio element play failed:', e));
               });
 
               if (audioContextRef.current) {
                 audioContextRef.current.resume().then(() => {
-                  console.log('[CAMPFIRE] AudioContext manually resumed');
+                  console.log('[CAMPFIRE] AudioContext resumed successfully');
                   setAudioBlocked(false);
                 }).catch(err => {
                   console.error('[CAMPFIRE] AudioContext resume failed:', err);
-                  setAudioBlocked(false); // Clear anyway to hide barrier
+                  setAudioBlocked(false);
                 });
               } else {
                 setAudioBlocked(false);
               }
             }}>
-              🔊 Join Conversation
+              Unmute & Join
             </button>
           </div>
         </div>
+      )}
+
+      {/* Redundant small button if overlay fails to show but audio is actually blocked */}
+      {!audioBlocked && (
+        <button className="btn btn-ghost" style={{ position: 'fixed', bottom: '80px', opacity: 0.3, fontSize: '0.8rem' }} onClick={() => setAudioBlocked(true)}>
+          No sound? Tap here
+        </button>
       )}
 
       <div className="controls">
@@ -469,24 +490,36 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
           left: 0;
           width: 100vw;
           height: 100vh;
-          background: rgba(0,0,0,0.8);
+          background: rgba(0,0,0,0.9);
           z-index: 1000;
           display: flex;
           align-items: center;
           justify-content: center;
-          backdrop-filter: blur(10px);
+          backdrop-filter: blur(20px);
         }
         .barrier-content {
           padding: 3rem;
           max-width: 400px;
           display: flex;
           flex-direction: column;
+          align-items: center;
+          text-align: center;
           gap: 1.5rem;
           border: 1px solid hsla(var(--accent-orange), 0.3);
+          border-radius: 2rem;
+          box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+        }
+        .icon-large {
+          font-size: 3rem;
+          margin-bottom: 1rem;
         }
         .barrier-content h3 {
           color: hsl(var(--accent-orange));
-          font-size: 1.5rem;
+          font-size: 1.8rem;
+          margin: 0;
+        }
+        .barrier-content p {
+          font-size: 1.1rem;
         }
         .controls {
           width: 100%;
