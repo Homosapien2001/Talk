@@ -2,6 +2,15 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Socket } from 'socket.io-client';
 import Peer from 'simple-peer';
 
+// Polyfills for simple-peer in Vite
+if (typeof (window as any).global === 'undefined') { (window as any).global = window; }
+if (typeof (window as any).process === 'undefined') {
+  (window as any).process = {
+    nextTick: (fn: any) => setTimeout(fn, 0),
+    env: { NODE_ENV: 'production' }
+  };
+}
+
 interface CampfireProps {
   socket: Socket;
   sessionData: {
@@ -18,16 +27,10 @@ const ROLES = [
 ];
 
 const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => {
-  console.log('[CAMPFIRE] Initializing with peers:', sessionData.peers);
   const [currentPeers, setCurrentPeers] = useState(sessionData.peers);
   const sortedPeers = [...currentPeers].sort();
 
-  if (!socket.id) {
-    console.log('[CAMPFIRE] Waiting for socket.id...');
-    return <div className="view-container"><h2>Connecting to the group...</h2></div>;
-  }
-
-  const myIndex = sortedPeers.indexOf(socket.id);
+  const myIndex = sortedPeers.indexOf(socket.id || '');
   const roleIndex = myIndex >= 0 ? myIndex % ROLES.length : 0;
   const role = ROLES[roleIndex];
 
@@ -53,7 +56,6 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
   }, [joined, currentPeers]);
 
   useEffect(() => {
-    // Session Timer Interval
     const timer = setInterval(() => {
       setTimeLeft(prev => Math.max(0, prev - 1000));
     }, 1000);
@@ -94,83 +96,69 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
   }, [onLeave, socket]);
 
   const setupVisualizer = (id: string, stream: MediaStream, isRemote: boolean = false) => {
-    const ctx = audioContextRef.current;
-    if (!ctx) return;
-
-    if (ctx.state === 'suspended') {
-      setAudioBlocked(true);
-    }
-
-    const audioTracks = stream.getAudioTracks();
-    console.log(`[CAMPFIRE] Setup visualizer for ${id} (remote: ${isRemote}). Tracks: ${audioTracks.length}`);
-    if (audioTracks.length === 0) {
-      console.warn(`[CAMPFIRE] NO AUDIO TRACKS for ${id}`);
-    }
-
-    const source = ctx.createMediaStreamSource(stream);
-    const analyser = ctx.createAnalyser();
-    analyser.fftSize = 256;
-
-    // Create a gain node to boost volume if it's a remote peer
-    const gainNode = ctx.createGain();
-    gainNode.gain.value = isRemote ? 3.0 : 1.0; // Boost remote audio 3x
-
-    source.connect(analyser);
-
-    if (isRemote) {
-      source.connect(gainNode);
-      gainNode.connect(ctx.destination);
-      console.log(`[CAMPFIRE] Routed remote stream ${id} to AudioContext destination with 3x Gain`);
-    }
-
-    const bufferLength = analyser.frequencyBinCount;
-    const dataArray = new Uint8Array(bufferLength);
-
-    const updateVolume = () => {
+    try {
       if (!audioContextRef.current) return;
-      analyser.getByteFrequencyData(dataArray);
-      let sum = 0;
-      for (let i = 0; i < bufferLength; i++) {
-        sum += dataArray[i];
+      const ctx = audioContextRef.current;
+
+      const source = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      source.connect(analyser);
+
+      if (isRemote) {
+        // Boost remote audio
+        const gainNode = ctx.createGain();
+        gainNode.gain.value = 2.5;
+        source.connect(gainNode);
+        gainNode.connect(ctx.destination);
+        console.log(`[CAMPFIRE] Routed remote stream ${id} through AudioContext`);
       }
-      const average = sum / bufferLength;
-      setSpeakingPeers(prev => ({ ...prev, [id]: average }));
-      requestAnimationFrame(updateVolume);
-    };
-    updateVolume();
+
+      const bufferLength = analyser.frequencyBinCount;
+      const dataArray = new Uint8Array(bufferLength);
+
+      const updateVolume = () => {
+        if (!audioContextRef.current || audioContextRef.current.state === 'closed') return;
+        analyser.getByteFrequencyData(dataArray);
+        let sum = 0;
+        for (let j = 0; j < bufferLength; j++) {
+          sum += dataArray[j];
+        }
+        const average = sum / bufferLength;
+        setSpeakingPeers(prev => ({ ...prev, [id]: average }));
+        requestAnimationFrame(updateVolume);
+      };
+      updateVolume();
+    } catch (e) {
+      console.error(`[CAMPFIRE] Failed to setup visualizer for ${id}:`, e);
+    }
   };
 
   const handleJoin = async () => {
-    console.log('[CAMPFIRE] Joining group with user gesture');
-
+    console.log('[CAMPFIRE] handleJoin triggered');
     try {
+      // 1. Initialize AudioContext
       const CtxClass = window.AudioContext || (window as any).webkitAudioContext;
       const ctx = new CtxClass();
       audioContextRef.current = ctx;
+      if (ctx.state === 'suspended') await ctx.resume();
 
-      if (ctx.state === 'suspended') {
-        await ctx.resume();
-        console.log('[CAMPFIRE] AudioContext resumed');
-      }
-
+      // 2. Get MediaStream
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          // Force high quality audio if possible
-          channelCount: 1,
-          sampleRate: 48000
-        },
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
         video: false
       });
       localStreamRef.current = stream;
       setJoined(true);
+      console.log('[CAMPFIRE] Local stream obtained');
 
+      // 3. Setup Local Visualizer
       setupVisualizer(socket.id as string, stream);
 
+      // 4. Connect to Peers
       sessionData.peers.forEach(peerId => {
         if (peerId === socket.id) return;
+        console.log(`[CAMPFIRE] Creating peer for ${peerId}`);
 
         const isInitiator = (socket.id as string) < peerId;
         const peer = new Peer({ initiator: isInitiator, trickle: false, stream });
@@ -180,12 +168,25 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
         });
 
         peer.on('stream', (remoteStream: MediaStream) => {
-          console.log(`[CAMPFIRE] Received remote stream from ${peerId}. Tracks:`, remoteStream.getAudioTracks().length);
+          console.log(`[CAMPFIRE] Stream received from ${peerId}`);
           setupVisualizer(peerId, remoteStream, true);
 
-          // Remove audio element to avoid interference, AudioContext destination is cleaner
-          let existingAudio = document.getElementById(`audio-${peerId}`);
-          if (existingAudio) existingAudio.remove();
+          // Use audio element as a secondary parallel output
+          let audio = document.getElementById(`audio-${peerId}`) as HTMLAudioElement;
+          if (!audio) {
+            audio = document.createElement('audio');
+            audio.id = `audio-${peerId}`;
+            audio.autoplay = true;
+            (audio as any).playsInline = true;
+            audio.style.position = 'fixed';
+            audio.style.top = '-100px'; // Offscreen
+            document.body.appendChild(audio);
+          }
+          audio.srcObject = remoteStream;
+          audio.play().catch(e => {
+            console.warn(`[CAMPFIRE] Audio element play failed for ${peerId}`, e);
+            setAudioBlocked(true);
+          });
         });
 
         peersRef.current[peerId] = peer;
@@ -195,9 +196,13 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
         const peer = peersRef.current[data.from];
         if (peer) peer.signal(data.signal);
       });
-    } catch (err) {
-      console.error("[CAMPFIRE] Failed to get local stream", err);
-      alert("Please allow microphone access to join the campfire.");
+
+    } catch (err: any) {
+      console.error("[CAMPFIRE] handleJoin error:", err);
+      // Detailed error for user
+      const msg = err?.message || JSON.stringify(err);
+      alert(`Could not join campfire: ${msg}`);
+      setJoined(false);
     }
   };
 
@@ -215,7 +220,7 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
 
   return (
     <div className={`view-container campfire-view ${isEnding ? 'fading' : ''}`}>
-      <div className="debug-overlay" style={{ position: 'fixed', top: 10, left: 10, fontSize: '10px', opacity: 0.5, zIndex: 2000 }}>
+      <div className="debug-overlay" style={{ position: 'fixed', top: 10, left: 10, fontSize: '10px', color: '#fff', opacity: 0.7, zIndex: 2000, background: 'rgba(0,0,0,0.5)', padding: '2px 5px', borderRadius: '4px' }}>
         {debugStatus}
       </div>
 
@@ -223,7 +228,7 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
         <div className="audio-barrier">
           <div className="barrier-content glass float">
             <div className="icon-large">🔥</div>
-            <h3>Campfire Started</h3>
+            <h3>Campfire is Ready</h3>
             <p>Ready to join the whisper of the group?</p>
             <button className="btn btn-primary pulse" style={{ width: '100%' }} onClick={handleJoin}>
               Join with Audio
@@ -240,7 +245,6 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
                 <p className="instruction text-secondary">{role.description}</p>
               </div>
             </div>
-
             <div className="timer-container glass">
               <span className="label">Fire remains</span>
               <div className={`timer ${isEnding ? 'warning' : ''}`}>{formatTime(timeLeft)}</div>
@@ -253,14 +257,11 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
               const isMe = peerId === socket.id;
               const displayIndex = (i - myIndex + sortedPeers.length) % sortedPeers.length;
               const volume = speakingPeers[peerId] || 0;
-              const isSpeaking = volume > 8;
+              const isSpeaking = volume > 10;
 
               return (
                 <div key={peerId} className="participant-node" style={{ transform: `rotate(${displayIndex * (360 / sortedPeers.length)}deg) translateY(-140px) rotate(-${displayIndex * (360 / sortedPeers.length)}deg)` }}>
-                  <div className={`avatar glass ${isSpeaking ? 'speaking' : ''}`} style={{
-                    boxShadow: isSpeaking ? `0 0 ${volume / 2}px hsla(var(--accent-orange), ${volume / 100})` : 'none',
-                    transform: isSpeaking ? `scale(${1 + volume / 500})` : 'scale(1)'
-                  }}>
+                  <div className={`avatar glass ${isSpeaking ? 'speaking' : ''}`}>
                     {isMe && <span className="you-label">You</span>}
                     {!isMe && <span className="peer-label">{`P${i + 1}`}</span>}
                   </div>
@@ -276,12 +277,12 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
             <div className="audio-barrier">
               <div className="barrier-content glass float">
                 <div className="icon-large">🔊</div>
-                <h3>Can you hear them?</h3>
-                <p>Browser is blocking audio. Tap below to unmute.</p>
+                <h3>Audio is Blocked</h3>
                 <button className="btn btn-primary pulse" onClick={() => {
                   audioContextRef.current?.resume();
+                  document.querySelectorAll('audio').forEach(a => a.play());
                   setAudioBlocked(false);
-                }}>Unmute & Join</button>
+                }}>Unmute</button>
               </div>
             </div>
           )}
@@ -296,26 +297,19 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
         __html: `
         .campfire-view { position: relative; height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; background: radial-gradient(circle at center, #1a0a05 0%, #050505 100%); }
         .top-bar { position: absolute; top: 2rem; left: 0; right: 0; display: flex; justify-content: space-between; padding: 0 2rem; z-index: 10; }
-        .session-info { padding: 1rem 1.5rem; border-radius: 1.5rem; }
-        .role-card .label { font-size: 0.7rem; letter-spacing: 0.1rem; color: hsla(var(--accent-orange), 0.7); font-weight: 700; margin-bottom: 0.2rem; display: block; }
+        .session-info, .timer-card, .timer-container { padding: 1rem 1.5rem; border-radius: 1.5rem; background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); }
+        .role-card .label { font-size: 0.7rem; color: hsla(var(--accent-orange), 0.7); font-weight: 700; margin-bottom: 0.2rem; display: block; }
         .role-card h3 { margin: 0; color: hsl(var(--accent-orange)); font-size: 1.2rem; }
-        .timer-container { padding: 1rem 1.5rem; border-radius: 1.5rem; text-align: right; }
         .timer { font-family: monospace; font-size: 1.5rem; color: hsl(var(--accent-orange)); }
-        .timer.warning { color: hsl(var(--danger)); animation: pulse 1s infinite; }
         .participants-ring { position: relative; width: 300px; height: 300px; display: flex; align-items: center; justify-content: center; }
         .fire-core { width: 60px; height: 60px; background: radial-gradient(circle at center, #ff8c00 0%, #ff4500 100%); border-radius: 50%; filter: blur(10px); }
-        .participant-node { position: absolute; display: flex; flex-direction: column; align-items: center; gap: 0.5rem; transition: all 0.5s ease; }
-        .avatar { width: 50px; height: 50px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid hsla(var(--foreground), 0.1); position: relative; background: rgba(255,255,255,0.05); }
-        .avatar.speaking { border-color: hsl(var(--accent-orange)); }
-        .you-label, .peer-label { position: absolute; top: -1.2rem; font-size: 0.7rem; color: hsla(var(--foreground), 0.5); white-space: nowrap; }
-        .flag-btn { width: 24px; height: 24px; border-radius: 50%; border: 1px solid hsla(var(--danger), 0.3); background: rgba(0,0,0,0.3); color: hsla(var(--danger), 0.8); font-size: 0.8rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
-        .flag-btn:hover { background: hsla(var(--danger), 0.1); }
-        .flag-btn.active { background: hsl(var(--danger)); color: white; border-color: hsl(var(--danger)); }
-        .controls { position: absolute; bottom: 3rem; }
+        .participant-node { position: absolute; display: flex; flex-direction: column; align-items: center; gap: 0.5rem; }
+        .avatar { width: 50px; height: 50px; border-radius: 50%; border: 2px solid hsla(var(--foreground), 0.1); background: rgba(255,255,255,0.05); }
+        .avatar.speaking { border-color: hsl(var(--accent-orange)); box-shadow: 0 0 20px hsla(var(--accent-orange), 0.5); }
+        .you-label, .peer-label { position: absolute; top: -1.2rem; font-size: 0.7rem; color: hsla(var(--foreground), 0.5); }
         .audio-barrier { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.9); z-index: 1000; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(20px); }
-        .barrier-content { padding: 3rem; max-width: 400px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 1.5rem; border: 1px solid hsla(var(--accent-orange), 0.3); border-radius: 2rem; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
+        .barrier-content { padding: 3rem; max-width: 400px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 1.5rem; border: 1px solid hsla(var(--accent-orange), 0.3); border-radius: 2rem; background: rgba(24,24,27,0.8); }
         .icon-large { font-size: 3rem; }
-        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
       ` }} />
     </div>
   );
