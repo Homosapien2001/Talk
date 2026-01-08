@@ -5,6 +5,19 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>talk-app</title>
+    <script>
+      window.global = window;
+      window.process = {
+        nextTick: (fn) => setTimeout(fn, 0),
+        env: { NODE_ENV: 'development' },
+        browser: true
+      };
+      window.Buffer = window.Buffer || {
+        isBuffer: () => false,
+        from: () => [],
+        alloc: () => []
+      };
+    </script>
   </head>
   <body>
     <div id="root"></div>

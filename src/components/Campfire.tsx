@@ -203,8 +203,9 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
 
     } catch (err: any) {
       console.error("[CAMPFIRE] handleJoin error:", err);
-      const msg = err?.message || JSON.stringify(err);
-      alert(`Could not join campfire: ${msg}`);
+      // Log the stack trace to the alert for debugging
+      const stack = err?.stack || 'No stack trace';
+      alert(`Could not join campfire.\nError: ${err?.message}\n\nStack: ${stack}`);
       setJoined(false);
     }
   };
