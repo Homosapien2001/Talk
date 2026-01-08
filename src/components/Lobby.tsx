@@ -43,7 +43,7 @@ const Lobby: React.FC<LobbyProps> = ({ onStart }) => {
         <button className="btn btn-primary" onClick={onStart}>
           Find a Campfire
         </button>
-        <p className="hint text-secondary">You'll join a room of 8–10 people once everyone is ready.</p>
+        <p className="hint text-secondary">You'll join a room of 2 people once everyone is ready.</p>
       </div>
 
       <style dangerouslySetInnerHTML={{

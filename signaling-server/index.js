@@ -14,142 +14,159 @@ let rooms = {}; // roomID -> { participants: [], readyStates: {} }
 
 io.on("connection", (socket) => {
     console.log("User connected:", socket.id);
+    let currentRoomID = null;
+
+    const leaveRoom = (id) => {
+        const targetRoomID = id || currentRoomID;
+        if (!targetRoomID) return;
+
+        if (rooms[targetRoomID]) {
+            rooms[targetRoomID].participants = rooms[targetRoomID].participants.filter(pid => pid !== socket.id);
+            delete rooms[targetRoomID].readyStates[socket.id];
+
+            if (rooms[targetRoomID].participants.length === 0) {
+                console.log(`Room ${targetRoomID} is empty, cleaning up.`);
+                delete rooms[targetRoomID];
+            } else {
+                io.to(targetRoomID).emit("room-update", {
+                    participants: rooms[targetRoomID].participants.length,
+                    readyCount: Object.values(rooms[targetRoomID].readyStates).filter(r => r).length
+                });
+
+                // Also notify campfire peers
+                io.to(targetRoomID).emit("participant-removed", {
+                    peerId: socket.id,
+                    newPeers: rooms[targetRoomID].participants
+                });
+            }
+        }
+        socket.leave(targetRoomID);
+        if (targetRoomID === currentRoomID) currentRoomID = null;
+    };
 
     socket.on("join-queue", () => {
-        let roomID = null;
+        // Cleanup: Ensure user isn't already in a room
+        if (currentRoomID) {
+            console.log(`Socket ${socket.id} leaving previous room ${currentRoomID}`);
+            leaveRoom(currentRoomID);
+        }
 
-        // Find a room with space
+        let roomID = null;
         for (const id in rooms) {
-            if (rooms[id].participants.length < ROOM_SIZE) {
+            if (rooms[id].participants.length < ROOM_SIZE && !rooms[id].participants.includes(socket.id)) {
                 roomID = id;
                 break;
             }
         }
 
-        // Create a new room if none found
         if (!roomID) {
             roomID = `room_${Date.now()}`;
-            rooms[roomID] = { participants: [], readyStates: {} };
+            rooms[roomID] = { participants: [], readyStates: {}, flags: {} };
+            console.log(`Created new room: ${roomID}`);
         }
 
+        currentRoomID = roomID;
         socket.join(roomID);
-        rooms[roomID].participants.push(socket.id);
+        if (!rooms[roomID].participants.includes(socket.id)) {
+            rooms[roomID].participants.push(socket.id);
+        }
         rooms[roomID].readyStates[socket.id] = false;
 
-        console.log(`Socket ${socket.id} joined ${roomID}`);
+        console.log(`Socket ${socket.id} joined ${roomID}. Participants: ${rooms[roomID].participants.length}/${ROOM_SIZE}`);
 
         io.to(roomID).emit("room-update", {
             participants: rooms[roomID].participants.length,
             readyCount: Object.values(rooms[roomID].readyStates).filter(r => r).length
         });
+    });
 
-        socket.on("toggle-ready", (isReady) => {
-            if (rooms[roomID]) {
-                rooms[roomID].readyStates[socket.id] = isReady;
+    socket.on("toggle-ready", (isReady) => {
+        if (currentRoomID && rooms[currentRoomID]) {
+            rooms[currentRoomID].readyStates[socket.id] = isReady;
 
-                const currentReadyCount = Object.values(rooms[roomID].readyStates).filter(r => r).length;
+            const currentReadyCount = Object.values(rooms[currentRoomID].readyStates).filter(r => r).length;
 
-                io.to(roomID).emit("room-update", {
-                    participants: rooms[roomID].participants.length,
-                    readyCount: currentReadyCount
+            console.log(`Room ${currentRoomID}: ${currentReadyCount}/${rooms[currentRoomID].participants.length} users ready`);
+
+            io.to(currentRoomID).emit("room-update", {
+                participants: rooms[currentRoomID].participants.length,
+                readyCount: currentReadyCount
+            });
+
+            // Trigger session start if everyone is ready and room is full
+            if (rooms[currentRoomID].participants.length === ROOM_SIZE && currentReadyCount === ROOM_SIZE) {
+                console.log(`Room ${currentRoomID}: Everyone ready. Starting session.`);
+                const sessionDuration = 15 * 60 * 1000; // 15 minutes
+
+                io.to(currentRoomID).emit("start-session", {
+                    roomID: currentRoomID,
+                    peers: rooms[currentRoomID].participants,
+                    duration: sessionDuration
                 });
 
-                // Trigger session start if everyone is ready and room is full
-                if (rooms[roomID].participants.length === ROOM_SIZE && currentReadyCount === ROOM_SIZE) {
-                    const sessionDuration = 15 * 60 * 1000; // 15 minutes
-                    rooms[roomID].flags = {}; // Initialize flags when session starts
+                // Session lifecycle timers
+                setTimeout(() => {
+                    io.to(currentRoomID).emit("session-ending", { remaining: 2 * 60 * 1000 });
+                }, sessionDuration - 2 * 60 * 1000);
 
-                    io.to(roomID).emit("start-session", {
-                        roomID: roomID,
-                        peers: rooms[roomID].participants,
-                        duration: sessionDuration
-                    });
-
-                    // Session lifecycle timers
-                    setTimeout(() => {
-                        io.to(roomID).emit("session-ending", { remaining: 2 * 60 * 1000 });
-                    }, sessionDuration - 2 * 60 * 1000);
-
-                    setTimeout(() => {
-                        io.to(roomID).emit("session-dissolved");
-                        // Cleanup room
-                        if (rooms[roomID]) {
-                            delete rooms[roomID];
-                        }
-                    }, sessionDuration);
-                }
-            }
-        });
-
-        socket.on("flag-participant", (targetId) => {
-            if (rooms[roomID] && rooms[roomID].flags) {
-                if (!rooms[roomID].flags[targetId]) {
-                    rooms[roomID].flags[targetId] = new Set();
-                }
-                rooms[roomID].flags[targetId].add(socket.id);
-
-                const flagCount = rooms[roomID].flags[targetId].size;
-                const threshold = 3; // Requirement: Three flags = quiet removal
-
-                if (flagCount >= threshold) {
-                    // Silent Kick
-                    console.log(`Kicking participant ${targetId} from ${roomID} due to flags`);
-
-                    const targetSocket = io.sockets.sockets.get(targetId);
-                    if (targetSocket) {
-                        targetSocket.emit("session-dissolved"); // Send them back to lobby
-                        targetSocket.leave(roomID);
+                setTimeout(() => {
+                    io.to(currentRoomID).emit("session-dissolved");
+                    // Cleanup room
+                    if (rooms[currentRoomID]) {
+                        delete rooms[currentRoomID];
                     }
+                }, sessionDuration);
+            }
+        }
+    });
 
-                    rooms[roomID].participants = rooms[roomID].participants.filter(id => id !== targetId);
-                    delete rooms[roomID].readyStates[targetId];
-                    delete rooms[roomID].flags[targetId];
+    socket.on("flag-participant", (targetId) => {
+        if (currentRoomID && rooms[currentRoomID] && rooms[currentRoomID].flags) {
+            if (!rooms[currentRoomID].flags[targetId]) {
+                rooms[currentRoomID].flags[targetId] = new Set();
+            }
+            rooms[currentRoomID].flags[targetId].add(socket.id);
 
-                    io.to(roomID).emit("participant-removed", {
+            const flagCount = rooms[currentRoomID].flags[targetId].size;
+            const threshold = Math.max(2, Math.floor(ROOM_SIZE / 2) + 1); // Logic: Simple majority or at least 2
+
+            if (flagCount >= threshold) {
+                // Silent Kick
+                console.log(`Kicking participant ${targetId} from ${currentRoomID} due to flags (${flagCount}/${threshold})`);
+
+                const targetSocket = io.sockets.sockets.get(targetId);
+                if (targetSocket) {
+                    targetSocket.emit("session-dissolved"); // Send them back to lobby
+                }
+
+                // Logic to remove them from room
+                if (rooms[currentRoomID]) {
+                    rooms[currentRoomID].participants = rooms[currentRoomID].participants.filter(id => id !== targetId);
+                    delete rooms[currentRoomID].readyStates[targetId];
+                    delete rooms[currentRoomID].flags[targetId];
+
+                    io.to(currentRoomID).emit("participant-removed", {
                         peerId: targetId,
-                        newPeers: rooms[roomID].participants
+                        newPeers: rooms[currentRoomID].participants
                     });
                 }
             }
+        }
+    });
+
+    // WebRTC Signaling Relay
+    socket.on("signal", (data) => {
+        io.to(data.to).emit("signal", {
+            from: socket.id,
+            signal: data.signal
         });
+    });
 
-        // WebRTC Signaling Relay
-        socket.on("signal", (data) => {
-            io.to(data.to).emit("signal", {
-                from: socket.id,
-                signal: data.signal
-            });
-        });
+    socket.on("leave-room", () => leaveRoom());
 
-        const leaveRoom = () => {
-            if (rooms[roomID]) {
-                rooms[roomID].participants = rooms[roomID].participants.filter(id => id !== socket.id);
-                delete rooms[roomID].readyStates[socket.id];
-
-                if (rooms[roomID].participants.length === 0) {
-                    delete rooms[roomID];
-                } else {
-                    io.to(roomID).emit("room-update", {
-                        participants: rooms[roomID].participants.length,
-                        readyCount: Object.values(rooms[roomID].readyStates).filter(r => r).length
-                    });
-
-                    // Also notify campfire peers
-                    io.to(roomID).emit("participant-removed", {
-                        peerId: socket.id,
-                        newPeers: rooms[roomID].participants
-                    });
-                }
-            }
-            socket.leave(roomID);
-        };
-
-        socket.on("leave-room", leaveRoom);
-
-        socket.on("disconnect", () => {
-            console.log("User disconnected:", socket.id);
-            leaveRoom();
-        });
+    socket.on("disconnect", () => {
+        console.log("User disconnected:", socket.id);
+        leaveRoom();
     });
 });
 

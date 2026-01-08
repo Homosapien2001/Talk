@@ -82,10 +82,10 @@ const ReadyRoom: React.FC<ReadyRoomProps> = ({ socket }) => {
         }
         .readiness-grid {
           display: grid;
-          grid-template-columns: repeat(4, 1fr);
-          gap: 1rem;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 2rem;
           width: 100%;
-          max-width: 500px;
+          max-width: 300px;
         }
         .slot {
           aspect-ratio: 1;
