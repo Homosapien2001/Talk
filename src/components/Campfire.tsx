@@ -314,6 +314,32 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
           position: relative;
           z-index: 3;
           bottom: 15px;
+          transition: all 3s ease-out;
+        }
+
+        .fire-pit.dying .fire-core {
+          width: 20px;
+          height: 25px;
+          background: radial-gradient(circle at 50% 30%, #ff8c00 0%, #ff4500 60%, #8b0000 100%);
+          filter: blur(3px);
+          box-shadow: 0 0 8px #ff4500, 0 0 20px rgba(255,69,0,0.2);
+          animation: dying-flicker 0.3s infinite alternate;
+          bottom: 5px;
+        }
+
+        .fire-pit.dying .spark {
+          animation: float-spark 4s infinite ease-out;
+          opacity: 0.3;
+        }
+
+        .fire-pit.dying .log {
+          background: linear-gradient(to bottom, #3e2723, #1a0e0a);
+          box-shadow: inset 0 0 8px rgba(255,69,0,0.3), 0 0 10px rgba(255,140,0,0.2);
+        }
+
+        @keyframes dying-flicker {
+          0% { transform: scale(1) rotate(-2deg); filter: blur(3px) brightness(0.6); opacity: 0.8; }
+          100% { transform: scale(0.9) rotate(2deg); filter: blur(4px) brightness(0.4); opacity: 0.6; }
         }
 
         .sparks { position: absolute; top: -100px; left: 0; width: 100%; height: 200px; pointer-events: none; z-index: 4; }
