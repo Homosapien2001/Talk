@@ -30,6 +30,8 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
   const roleIndex = myIndex >= 0 ? myIndex % ROLES.length : 0;
   const role = ROLES[roleIndex];
 
+  const [audioEnabled, setAudioEnabled] = useState(false);
+  const [audioBlocked, setAudioBlocked] = useState(false);
   const [flagged, setFlagged] = useState<string[]>([]);
   const [speakingPeers, setSpeakingPeers] = useState<{ [key: string]: number }>({});
   const [timeLeft, setTimeLeft] = useState(sessionData.duration);
@@ -57,6 +59,7 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
       if (peersRef.current[data.peerId]) {
         peersRef.current[data.peerId].destroy();
         delete peersRef.current[data.peerId];
+        document.getElementById(`audio-${data.peerId}`)?.remove();
       }
       setCurrentPeers(data.newPeers);
     });
@@ -72,6 +75,7 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
           video: false
         });
         localStreamRef.current = stream;
+        setAudioEnabled(true);
 
         // Setup local visualizer
         setupVisualizer(socket.id as string, stream);
@@ -92,20 +96,29 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
           });
 
           peer.on('stream', (remoteStream: MediaStream) => {
-            console.log(`Received remote stream from ${peerId}`);
+            console.log(`[CAMPFIRE] Received remote stream from ${peerId}`);
             // Visualize remote stream
             setupVisualizer(peerId, remoteStream);
 
-            // Create and append hidden audio element
+            // Create and append audio element with robust attributes
             let audio = document.getElementById(`audio-${peerId}`) as HTMLAudioElement;
             if (!audio) {
               audio = document.createElement('audio');
               audio.id = `audio-${peerId}`;
-              audio.style.display = 'none';
+              // Critical for mobile and browser autoplay policies
+              audio.autoplay = true;
+              audio.playsInline = true;
+              audio.style.position = 'absolute';
+              audio.style.opacity = '0';
+              audio.style.pointerEvents = 'none';
               document.body.appendChild(audio);
             }
             audio.srcObject = remoteStream;
-            audio.play().catch(e => console.error("Audio playback failed:", e));
+
+            audio.play().catch(e => {
+              console.warn(`[CAMPFIRE] Autoplay blocked for ${peerId}:`, e);
+              setAudioBlocked(true);
+            });
           });
 
           peersRef.current[peerId] = peer;
@@ -116,7 +129,7 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
           if (peer) peer.signal(data.signal);
         });
       } catch (err) {
-        console.error("Failed to get local stream", err);
+        console.error("[CAMPFIRE] Failed to get local stream", err);
       }
     };
 
@@ -255,6 +268,15 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
       </div>
 
       <div className="controls">
+        {audioBlocked && (
+          <button className="btn btn-primary pulse" onClick={() => {
+            const audios = document.querySelectorAll('audio');
+            audios.forEach(a => a.play().catch(console.error));
+            setAudioBlocked(false);
+          }}>
+            Tap to Hear Group
+          </button>
+        )}
         <button className="btn btn-ghost" onClick={handleManualLeave}>
           Leave Softly
         </button>
