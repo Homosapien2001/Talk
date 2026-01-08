@@ -101,14 +101,26 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
       setAudioBlocked(true);
     }
 
+    const audioTracks = stream.getAudioTracks();
+    console.log(`[CAMPFIRE] Setup visualizer for ${id} (remote: ${isRemote}). Tracks: ${audioTracks.length}`);
+    if (audioTracks.length === 0) {
+      console.warn(`[CAMPFIRE] NO AUDIO TRACKS for ${id}`);
+    }
+
     const source = ctx.createMediaStreamSource(stream);
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 256;
+
+    // Create a gain node to boost volume if it's a remote peer
+    const gainNode = ctx.createGain();
+    gainNode.gain.value = isRemote ? 3.0 : 1.0; // Boost remote audio 3x
+
     source.connect(analyser);
 
     if (isRemote) {
-      source.connect(ctx.destination);
-      console.log(`[CAMPFIRE] Routed remote stream ${id} to AudioContext destination`);
+      source.connect(gainNode);
+      gainNode.connect(ctx.destination);
+      console.log(`[CAMPFIRE] Routed remote stream ${id} to AudioContext destination with 3x Gain`);
     }
 
     const bufferLength = analyser.frequencyBinCount;
@@ -138,10 +150,18 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
 
       if (ctx.state === 'suspended') {
         await ctx.resume();
+        console.log('[CAMPFIRE] AudioContext resumed');
       }
 
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          // Force high quality audio if possible
+          channelCount: 1,
+          sampleRate: 48000
+        },
         video: false
       });
       localStreamRef.current = stream;
@@ -160,24 +180,12 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
         });
 
         peer.on('stream', (remoteStream: MediaStream) => {
-          console.log(`[CAMPFIRE] Received remote stream from ${peerId}`);
+          console.log(`[CAMPFIRE] Received remote stream from ${peerId}. Tracks:`, remoteStream.getAudioTracks().length);
           setupVisualizer(peerId, remoteStream, true);
 
-          let audio = document.getElementById(`audio-${peerId}`) as HTMLAudioElement;
-          if (!audio) {
-            audio = document.createElement('audio');
-            audio.id = `audio-${peerId}`;
-            audio.autoplay = true;
-            (audio as any).playsInline = true;
-            audio.style.position = 'absolute';
-            audio.style.opacity = '0';
-            document.body.appendChild(audio);
-          }
-          audio.srcObject = remoteStream;
-          audio.play().catch(e => {
-            console.warn(`[CAMPFIRE] Audio element play blocked:`, e);
-            setAudioBlocked(true);
-          });
+          // Remove audio element to avoid interference, AudioContext destination is cleaner
+          let existingAudio = document.getElementById(`audio-${peerId}`);
+          if (existingAudio) existingAudio.remove();
         });
 
         peersRef.current[peerId] = peer;
@@ -245,12 +253,16 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
               const isMe = peerId === socket.id;
               const displayIndex = (i - myIndex + sortedPeers.length) % sortedPeers.length;
               const volume = speakingPeers[peerId] || 0;
-              const isSpeaking = volume > 10;
+              const isSpeaking = volume > 8;
 
               return (
                 <div key={peerId} className="participant-node" style={{ transform: `rotate(${displayIndex * (360 / sortedPeers.length)}deg) translateY(-140px) rotate(-${displayIndex * (360 / sortedPeers.length)}deg)` }}>
-                  <div className={`avatar glass ${isSpeaking ? 'speaking' : ''}`} style={{ boxShadow: isSpeaking ? `0 0 ${volume / 2}px hsla(var(--accent-orange), ${volume / 100})` : 'none' }}>
+                  <div className={`avatar glass ${isSpeaking ? 'speaking' : ''}`} style={{
+                    boxShadow: isSpeaking ? `0 0 ${volume / 2}px hsla(var(--accent-orange), ${volume / 100})` : 'none',
+                    transform: isSpeaking ? `scale(${1 + volume / 500})` : 'scale(1)'
+                  }}>
                     {isMe && <span className="you-label">You</span>}
+                    {!isMe && <span className="peer-label">{`P${i + 1}`}</span>}
                   </div>
                   {!isMe && (
                     <button className={`flag-btn ${flagged.includes(peerId) ? 'active' : ''}`} onClick={() => toggleFlag(peerId)}>!</button>
@@ -268,7 +280,6 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
                 <p>Browser is blocking audio. Tap below to unmute.</p>
                 <button className="btn btn-primary pulse" onClick={() => {
                   audioContextRef.current?.resume();
-                  document.querySelectorAll('audio').forEach(a => a.play());
                   setAudioBlocked(false);
                 }}>Unmute & Join</button>
               </div>
@@ -294,10 +305,11 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
         .participants-ring { position: relative; width: 300px; height: 300px; display: flex; align-items: center; justify-content: center; }
         .fire-core { width: 60px; height: 60px; background: radial-gradient(circle at center, #ff8c00 0%, #ff4500 100%); border-radius: 50%; filter: blur(10px); }
         .participant-node { position: absolute; display: flex; flex-direction: column; align-items: center; gap: 0.5rem; transition: all 0.5s ease; }
-        .avatar { width: 50px; height: 50px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid hsla(var(--foreground), 0.1); position: relative; }
+        .avatar { width: 50px; height: 50px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid hsla(var(--foreground), 0.1); position: relative; background: rgba(255,255,255,0.05); }
         .avatar.speaking { border-color: hsl(var(--accent-orange)); }
-        .you-label { position: absolute; top: -1.2rem; font-size: 0.7rem; color: hsla(var(--foreground), 0.5); }
-        .flag-btn { width: 20px; height: 20px; border-radius: 50%; border: 1px solid hsla(var(--danger), 0.3); background: none; color: hsla(var(--danger), 0.5); font-size: 0.7rem; cursor: pointer; }
+        .you-label, .peer-label { position: absolute; top: -1.2rem; font-size: 0.7rem; color: hsla(var(--foreground), 0.5); white-space: nowrap; }
+        .flag-btn { width: 24px; height: 24px; border-radius: 50%; border: 1px solid hsla(var(--danger), 0.3); background: rgba(0,0,0,0.3); color: hsla(var(--danger), 0.8); font-size: 0.8rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+        .flag-btn:hover { background: hsla(var(--danger), 0.1); }
         .flag-btn.active { background: hsl(var(--danger)); color: white; border-color: hsl(var(--danger)); }
         .controls { position: absolute; bottom: 3rem; }
         .audio-barrier { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.9); z-index: 1000; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(20px); }
