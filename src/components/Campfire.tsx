@@ -135,16 +135,26 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
 
     const setupVisualizer = (id: string, stream: MediaStream, isRemote: boolean = false) => {
       if (!audioContextRef.current) {
-        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const CtxClass = window.AudioContext || (window as any).webkitAudioContext;
+        const ctx = new CtxClass();
+        audioContextRef.current = ctx;
+
+        // Monitor state changes
+        ctx.onstatechange = () => {
+          console.log(`[CAMPFIRE] AudioContext state changed: ${ctx.state}`);
+          if (ctx.state === 'suspended') {
+            setAudioBlocked(true);
+          } else if (ctx.state === 'running') {
+            setAudioBlocked(false);
+          }
+        };
+
+        if (ctx.state === 'suspended') {
+          setAudioBlocked(true);
+        }
       }
+
       const ctx = audioContextRef.current;
-
-      // Ensure we track if the context is suspended (blocked by browser)
-      if (ctx.state === 'suspended') {
-        console.log('[CAMPFIRE] AudioContext is suspended, setting audioBlocked');
-        setAudioBlocked(true);
-      }
-
       const source = ctx.createMediaStreamSource(stream);
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 256;
