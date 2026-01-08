@@ -236,7 +236,7 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
 
               return (
                 <div key={peerId} className="participant-node" style={{ transform: `rotate(${displayIndex * (360 / sortedPeers.length)}deg) translateY(-140px) rotate(-${displayIndex * (360 / sortedPeers.length)}deg)` }}>
-                  <div className={`avatar glass ${isSpeaking ? 'speaking' : ''}`}>
+                  <div className={`avatar ${isSpeaking ? 'speaking' : ''}`}>
                     <span className="cartoon-char">{CHARACTERS[i % CHARACTERS.length]}</span>
                     {isMe && <span className="you-label">You</span>}
                     {!isMe && <span className="peer-label">{`P${i + 1}`}</span>}
@@ -280,12 +280,37 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
         .role-card .instruction { margin: 0; font-size: 0.85rem; opacity: 0.8; }
         .timer { font-family: monospace; font-size: 1.5rem; color: hsl(var(--accent-orange)); font-weight: 700; }
         .participants-ring { position: relative; width: 340px; height: 340px; display: flex; align-items: center; justify-content: center; margin-top: auto; margin-bottom: auto; }
-        .fire-core { width: 80px; height: 80px; background: radial-gradient(circle at center, #ff8c00 0%, #ff4500 100%); border-radius: 50%; filter: blur(15px); box-shadow: 0 0 40px #ff4500; }
+        .fire-core { 
+          width: 80px; height: 80px; 
+          background: radial-gradient(circle at 50% 20%, #fff 0%, #ffdf00 20%, #ff8c00 50%, #ff4500 100%); 
+          border-radius: 50% 50% 20% 20%; 
+          filter: blur(8px); 
+          box-shadow: 0 0 20px #ff4500, 0 0 60px #ff8c00, 0 -20px 40px #ffdf00;
+          animation: flicker 0.15s infinite alternate;
+          position: relative;
+        }
+        .fire-core::after {
+          content: '';
+          position: absolute;
+          top: 10%; left: 10%; width: 80%; height: 80%;
+          background: radial-gradient(circle at center, #fff 0%, transparent 70%);
+          filter: blur(4px);
+          opacity: 0.6;
+          animation: flare 2s infinite ease-in-out;
+        }
+        @keyframes flicker {
+          0% { transform: scale(1) rotate(-1deg); filter: blur(8px) brightness(1); }
+          100% { transform: scale(1.05) rotate(1deg); filter: blur(6px) brightness(1.2); }
+        }
+        @keyframes flare {
+          0%, 100% { transform: translateY(0) scale(1); opacity: 0.4; }
+          50% { transform: translateY(-15px) scale(1.2); opacity: 0.8; }
+        }
         .participant-node { position: absolute; display: flex; flex-direction: column; align-items: center; gap: 0.8rem; }
-        .avatar { width: 65px; height: 65px; border-radius: 50%; border: 2px solid hsla(var(--foreground), 0.1); background: rgba(255,255,255,0.08); display: flex; align-items: center; justify-content: center; position: relative; }
-        .cartoon-char { font-size: 2.2rem; }
-        .avatar.speaking { border-color: hsl(var(--accent-orange)); box-shadow: 0 0 30px hsla(var(--accent-orange), 0.6); transform: scale(1.1); transition: all 0.2s ease; }
-        .you-label, .peer-label { position: absolute; top: -1.4rem; font-size: 0.75rem; font-weight: 600; color: hsla(var(--foreground), 0.8); background: rgba(0,0,0,0.4); padding: 2px 8px; border-radius: 10px; }
+        .avatar { width: 65px; height: 65px; display: flex; align-items: center; justify-content: center; position: relative; transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        .cartoon-char { font-size: 3rem; filter: drop-shadow(0 0 10px rgba(0,0,0,0.5)); }
+        .avatar.speaking { transform: scale(1.25); filter: drop-shadow(0 0 20px hsla(var(--accent-orange), 0.8)); }
+        .you-label, .peer-label { position: absolute; bottom: -1rem; font-size: 0.7rem; font-weight: 700; color: hsla(var(--foreground), 0.9); background: rgba(0,0,0,0.6); padding: 2px 8px; border-radius: 12px; white-space: nowrap; backdrop-filter: blur(4px); }
         .audio-barrier { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.9); z-index: 1000; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(20px); }
         .barrier-content { padding: 3rem; max-width: 400px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 1.5rem; border: 1px solid hsla(var(--accent-orange), 0.3); border-radius: 2rem; background: rgba(24,24,27,0.8); }
         .icon-large { font-size: 3rem; }
