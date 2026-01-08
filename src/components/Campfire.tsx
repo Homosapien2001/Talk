@@ -107,7 +107,7 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
               audio.id = `audio-${peerId}`;
               // Critical for mobile and browser autoplay policies
               audio.autoplay = true;
-              audio.playsInline = true;
+              (audio as any).playsInline = true;
               audio.style.position = 'absolute';
               audio.style.opacity = '0';
               audio.style.pointerEvents = 'none';
