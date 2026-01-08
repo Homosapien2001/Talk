@@ -9,7 +9,7 @@ const io = new Server(server, {
     }
 });
 
-const ROOM_SIZE = 8;
+const ROOM_SIZE = 2;
 let rooms = {}; // roomID -> { participants: [], readyStates: {} }
 
 io.on("connection", (socket) => {

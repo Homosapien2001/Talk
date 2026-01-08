@@ -215,7 +215,7 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
         </div>
         {sortedPeers.map((peerId, i) => {
           const isMe = peerId === socket.id;
-          const displayIndex = (i - myIndex + 8) % 8; // Center "me" at the top-ish
+          const displayIndex = (i - myIndex + sortedPeers.length) % sortedPeers.length; // Center "me" at the top-ish
           const volume = speakingPeers[peerId] || 0;
           const isSpeaking = volume > 20;
 
@@ -223,7 +223,7 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
             <div
               key={peerId}
               className="participant-node"
-              style={{ transform: `rotate(${displayIndex * 45}deg) translateY(-140px) rotate(-${displayIndex * 45}deg)` }}
+              style={{ transform: `rotate(${displayIndex * (360 / sortedPeers.length)}deg) translateY(-140px) rotate(-${displayIndex * (360 / sortedPeers.length)}deg)` }}
             >
               <div
                 className={`avatar glass ${isSpeaking ? 'speaking' : ''}`}

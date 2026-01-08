@@ -9,7 +9,7 @@ const ReadyRoom: React.FC<ReadyRoomProps> = ({ socket }) => {
   const [participantsCount, setParticipantsCount] = useState(0);
   const [readyCount, setReadyCount] = useState(0);
   const [isReady, setIsReady] = useState(false);
-  const totalNeeded = 8;
+  const totalNeeded = 2;
 
   useEffect(() => {
     socket.on('room-update', (data: { participants: number, readyCount: number }) => {
