@@ -49,11 +49,30 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
   useEffect(() => {
     const updateDebug = () => {
       const ctx = audioContextRef.current;
-      setDebugStatus(`Ctx: ${ctx?.state || 'N/A'} | Joined: ${joined} | Peers: ${currentPeers.length}`);
+      const tracks = localStreamRef.current?.getAudioTracks() || [];
+      const trackStatuses = tracks.map(t => `${t.label}: ${t.enabled ? 'ON' : 'OFF'} (${t.readyState})`).join(', ');
+      setDebugStatus(`Ctx: ${ctx?.state || 'N/A'} | Joined: ${joined} | Peers: ${currentPeers.length} | Tracks: ${trackStatuses}`);
     };
     const interval = setInterval(updateDebug, 1000);
     return () => clearInterval(interval);
   }, [joined, currentPeers]);
+
+  const playTestTone = () => {
+    if (!audioContextRef.current) return;
+    const ctx = audioContextRef.current;
+    if (ctx.state === 'suspended') ctx.resume();
+
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(440, ctx.currentTime);
+    gain.gain.setValueAtTime(0.1, ctx.currentTime);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.5);
+    console.log('[CAMPFIRE] Test tone played');
+  };
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -171,18 +190,26 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
           console.log(`[CAMPFIRE] Stream received from ${peerId}`);
           setupVisualizer(peerId, remoteStream, true);
 
-          // Use audio element as a secondary parallel output
+          // Use audio element as a secondary parallel output - MAKE VISIBLE
           let audio = document.getElementById(`audio-${peerId}`) as HTMLAudioElement;
           if (!audio) {
             audio = document.createElement('audio');
             audio.id = `audio-${peerId}`;
             audio.autoplay = true;
             (audio as any).playsInline = true;
+            audio.controls = false;
+            audio.style.width = '1px';
+            audio.style.height = '1px';
             audio.style.position = 'fixed';
-            audio.style.top = '-100px'; // Offscreen
+            audio.style.bottom = '0';
+            audio.style.right = '0';
+            audio.style.zIndex = '-1';
+            audio.style.opacity = '0.01'; // Just barely visible/opaque
             document.body.appendChild(audio);
           }
           audio.srcObject = remoteStream;
+          audio.volume = 1.0;
+          audio.muted = false;
           audio.play().catch(e => {
             console.warn(`[CAMPFIRE] Audio element play failed for ${peerId}`, e);
             setAudioBlocked(true);
@@ -288,6 +315,9 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
           )}
 
           <div className="controls">
+            <button className="btn btn-ghost" onClick={playTestTone} style={{ marginRight: '1rem', fontSize: '0.7rem' }}>
+              🔊 Test Speakers
+            </button>
             <button className="btn btn-ghost" onClick={onLeave}>Leave Softly</button>
           </div>
         </>
