@@ -97,8 +97,8 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
 
           peer.on('stream', (remoteStream: MediaStream) => {
             console.log(`[CAMPFIRE] Received remote stream from ${peerId}`);
-            // Visualize remote stream
-            setupVisualizer(peerId, remoteStream);
+            // Visualize AND play remote stream
+            setupVisualizer(peerId, remoteStream, true);
 
             // Create and append audio element with robust attributes
             let audio = document.getElementById(`audio-${peerId}`) as HTMLAudioElement;
@@ -133,7 +133,7 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
       }
     };
 
-    const setupVisualizer = (id: string, stream: MediaStream) => {
+    const setupVisualizer = (id: string, stream: MediaStream, isRemote: boolean = false) => {
       if (!audioContextRef.current) {
         audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
       }
@@ -142,6 +142,12 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 256;
       source.connect(analyser);
+
+      // If it's a remote stream, also route it to the speakers via the AudioContext
+      if (isRemote) {
+        source.connect(ctx.destination);
+        console.log(`[CAMPFIRE] Routed remote stream ${id} to AudioContext destination`);
+      }
 
       const bufferLength = analyser.frequencyBinCount;
       const dataArray = new Uint8Array(bufferLength);
@@ -272,7 +278,14 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
           <button className="btn btn-primary pulse" onClick={() => {
             const audios = document.querySelectorAll('audio');
             audios.forEach(a => a.play().catch(console.error));
-            setAudioBlocked(false);
+            if (audioContextRef.current) {
+              audioContextRef.current.resume().then(() => {
+                console.log('[CAMPFIRE] AudioContext resumed');
+                setAudioBlocked(false);
+              });
+            } else {
+              setAudioBlocked(false);
+            }
           }}>
             Tap to Hear Group
           </button>
