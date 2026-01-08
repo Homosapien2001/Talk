@@ -298,22 +298,22 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
         .participants-ring { position: relative; width: 340px; height: 340px; display: flex; align-items: center; justify-content: center; margin-top: auto; margin-bottom: auto; }
         .fire-pit { position: relative; width: 100px; height: 100px; display: flex; align-items: flex-end; justify-content: center; }
         
-        .logs { position: absolute; bottom: 0; width: 100%; height: 30px; display: flex; justify-content: center; gap: 4px; z-index: 2; }
-        .log { height: 12px; width: 40px; background: linear-gradient(to bottom, #5d4037, #3e2723); border-radius: 4px; border: 1px solid #2d1b18; box-shadow: inset 0 0 5px rgba(0,0,0,0.5); }
+        .logs { position: absolute; bottom: 0; width: 100%; height: 40px; display: flex; justify-content: center; gap: 6px; z-index: 2; }
+        .log { height: 16px; width: 60px; background: linear-gradient(to bottom, #5d4037, #3e2723); border-radius: 6px; border: 1px solid #2d1b18; box-shadow: inset 0 0 8px rgba(0,0,0,0.6), 0 2px 4px rgba(0,0,0,0.4); }
         .log:nth-child(1) { transform: rotate(-15deg) translateY(5px); }
-        .log:nth-child(2) { transform: rotate(5deg) translateY(0); width: 45px; }
-        .log:nth-child(3) { transform: rotate(20deg) translateY(8px); position: absolute; left: 20px; }
+        .log:nth-child(2) { transform: rotate(5deg) translateY(0); width: 65px; }
+        .log:nth-child(3) { transform: rotate(20deg) translateY(8px); position: absolute; left: 15px; }
 
         .fire-core { 
-          width: 80px; height: 90px; 
+          width: 60px; height: 75px; 
           background: radial-gradient(circle at 50% 10%, #fff 0%, #ffdf00 25%, #ff8c00 50%, #ff4500 100%); 
-          border-radius: 50% 50% 30% 30%; 
-          filter: blur(6px); 
-          box-shadow: 0 0 20px #ff4500, 0 0 60px rgba(255,140,0,0.4), 0 -30px 50px rgba(255,223,0,0.3);
+          border-radius: 50% 50% 35% 35%; 
+          filter: blur(5px); 
+          box-shadow: 0 0 15px #ff4500, 0 0 50px rgba(255,140,0,0.4), 0 -20px 40px rgba(255,223,0,0.3);
           animation: flicker 0.1s infinite alternate;
           position: relative;
           z-index: 3;
-          bottom: 10px;
+          bottom: 15px;
         }
 
         .sparks { position: absolute; top: -100px; left: 0; width: 100%; height: 200px; pointer-events: none; z-index: 4; }
