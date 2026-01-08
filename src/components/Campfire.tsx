@@ -138,6 +138,13 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
         audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
       }
       const ctx = audioContextRef.current;
+
+      // Ensure we track if the context is suspended (blocked by browser)
+      if (ctx.state === 'suspended') {
+        console.log('[CAMPFIRE] AudioContext is suspended, setting audioBlocked');
+        setAudioBlocked(true);
+      }
+
       const source = ctx.createMediaStreamSource(stream);
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 256;
@@ -273,23 +280,38 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
         })}
       </div>
 
-      <div className="controls">
-        {audioBlocked && (
-          <button className="btn btn-primary pulse" onClick={() => {
-            const audios = document.querySelectorAll('audio');
-            audios.forEach(a => a.play().catch(console.error));
-            if (audioContextRef.current) {
-              audioContextRef.current.resume().then(() => {
-                console.log('[CAMPFIRE] AudioContext resumed');
-                setAudioBlocked(false);
+      {audioBlocked && (
+        <div className="audio-barrier">
+          <div className="barrier-content glass float">
+            <h3>Audio is Muted</h3>
+            <p className="text-secondary">Browser blocked the sound. Tap below to hear the group.</p>
+            <button className="btn btn-primary pulse" onClick={() => {
+              console.log('[CAMPFIRE] Manual audio activation triggered');
+              const audios = document.querySelectorAll('audio');
+              audios.forEach(a => {
+                a.muted = false; // Just in case
+                a.play().catch(err => console.error('[CAMPFIRE] Audio play failed after tap:', err));
               });
-            } else {
-              setAudioBlocked(false);
-            }
-          }}>
-            Tap to Hear Group
-          </button>
-        )}
+
+              if (audioContextRef.current) {
+                audioContextRef.current.resume().then(() => {
+                  console.log('[CAMPFIRE] AudioContext manually resumed');
+                  setAudioBlocked(false);
+                }).catch(err => {
+                  console.error('[CAMPFIRE] AudioContext resume failed:', err);
+                  setAudioBlocked(false); // Clear anyway to hide barrier
+                });
+              } else {
+                setAudioBlocked(false);
+              }
+            }}>
+              🔊 Join Conversation
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="controls">
         <button className="btn btn-ghost" onClick={handleManualLeave}>
           Leave Softly
         </button>
@@ -430,6 +452,31 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
         .flag-btn.active {
           color: hsl(var(--danger));
           opacity: 1;
+        }
+        .audio-barrier {
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100vw;
+          height: 100vh;
+          background: rgba(0,0,0,0.8);
+          z-index: 1000;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          backdrop-filter: blur(10px);
+        }
+        .barrier-content {
+          padding: 3rem;
+          max-width: 400px;
+          display: flex;
+          flex-direction: column;
+          gap: 1.5rem;
+          border: 1px solid hsla(var(--accent-orange), 0.3);
+        }
+        .barrier-content h3 {
+          color: hsl(var(--accent-orange));
+          font-size: 1.5rem;
         }
         .controls {
           width: 100%;
