@@ -2,15 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Socket } from 'socket.io-client';
 import Peer from 'simple-peer';
 
-// Polyfills for simple-peer in Vite
-if (typeof (window as any).global === 'undefined') { (window as any).global = window; }
-if (typeof (window as any).process === 'undefined') {
-  (window as any).process = {
-    nextTick: (fn: any) => setTimeout(fn, 0),
-    env: { NODE_ENV: 'production' }
-  };
-}
-
 interface CampfireProps {
   socket: Socket;
   sessionData: {
@@ -125,12 +116,10 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
       source.connect(analyser);
 
       if (isRemote) {
-        // Boost remote audio
         const gainNode = ctx.createGain();
         gainNode.gain.value = 2.5;
         source.connect(gainNode);
         gainNode.connect(ctx.destination);
-        console.log(`[CAMPFIRE] Routed remote stream ${id} through AudioContext`);
       }
 
       const bufferLength = analyser.frequencyBinCount;
@@ -154,30 +143,23 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
   };
 
   const handleJoin = async () => {
-    console.log('[CAMPFIRE] handleJoin triggered');
     try {
-      // 1. Initialize AudioContext
       const CtxClass = window.AudioContext || (window as any).webkitAudioContext;
       const ctx = new CtxClass();
       audioContextRef.current = ctx;
       if (ctx.state === 'suspended') await ctx.resume();
 
-      // 2. Get MediaStream
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
         video: false
       });
       localStreamRef.current = stream;
       setJoined(true);
-      console.log('[CAMPFIRE] Local stream obtained');
 
-      // 3. Setup Local Visualizer
       setupVisualizer(socket.id as string, stream);
 
-      // 4. Connect to Peers
       sessionData.peers.forEach(peerId => {
         if (peerId === socket.id) return;
-        console.log(`[CAMPFIRE] Creating peer for ${peerId}`);
 
         const isInitiator = (socket.id as string) < peerId;
         const peer = new Peer({ initiator: isInitiator, trickle: false, stream });
@@ -190,21 +172,16 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
           console.log(`[CAMPFIRE] Stream received from ${peerId}`);
           setupVisualizer(peerId, remoteStream, true);
 
-          // Use audio element as a secondary parallel output - MAKE VISIBLE
           let audio = document.getElementById(`audio-${peerId}`) as HTMLAudioElement;
           if (!audio) {
             audio = document.createElement('audio');
             audio.id = `audio-${peerId}`;
             audio.autoplay = true;
             (audio as any).playsInline = true;
-            audio.controls = false;
             audio.style.width = '1px';
             audio.style.height = '1px';
             audio.style.position = 'fixed';
             audio.style.bottom = '0';
-            audio.style.right = '0';
-            audio.style.zIndex = '-1';
-            audio.style.opacity = '0.01'; // Just barely visible/opaque
             document.body.appendChild(audio);
           }
           audio.srcObject = remoteStream;
@@ -226,7 +203,6 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
 
     } catch (err: any) {
       console.error("[CAMPFIRE] handleJoin error:", err);
-      // Detailed error for user
       const msg = err?.message || JSON.stringify(err);
       alert(`Could not join campfire: ${msg}`);
       setJoined(false);
@@ -284,7 +260,7 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
               const isMe = peerId === socket.id;
               const displayIndex = (i - myIndex + sortedPeers.length) % sortedPeers.length;
               const volume = speakingPeers[peerId] || 0;
-              const isSpeaking = volume > 10;
+              const isSpeaking = volume > 8;
 
               return (
                 <div key={peerId} className="participant-node" style={{ transform: `rotate(${displayIndex * (360 / sortedPeers.length)}deg) translateY(-140px) rotate(-${displayIndex * (360 / sortedPeers.length)}deg)` }}>
@@ -327,7 +303,7 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
         __html: `
         .campfire-view { position: relative; height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; background: radial-gradient(circle at center, #1a0a05 0%, #050505 100%); }
         .top-bar { position: absolute; top: 2rem; left: 0; right: 0; display: flex; justify-content: space-between; padding: 0 2rem; z-index: 10; }
-        .session-info, .timer-card, .timer-container { padding: 1rem 1.5rem; border-radius: 1.5rem; background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); }
+        .session-info, .timer-container { padding: 1rem 1.5rem; border-radius: 1.5rem; background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); }
         .role-card .label { font-size: 0.7rem; color: hsla(var(--accent-orange), 0.7); font-weight: 700; margin-bottom: 0.2rem; display: block; }
         .role-card h3 { margin: 0; color: hsl(var(--accent-orange)); font-size: 1.2rem; }
         .timer { font-family: monospace; font-size: 1.5rem; color: hsl(var(--accent-orange)); }
