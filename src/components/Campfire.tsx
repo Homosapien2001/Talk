@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Socket } from 'socket.io-client';
-import Peer from 'simple-peer/simplepeer.min.js'; // Using minified to avoid some node-only issues in browser
+import Peer from 'simple-peer';
 
 interface CampfireProps {
   socket: Socket;
