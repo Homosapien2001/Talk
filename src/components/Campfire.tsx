@@ -27,7 +27,6 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
 
   const [joined, setJoined] = useState(false);
   const [audioBlocked, setAudioBlocked] = useState(false);
-  const [debugStatus, setDebugStatus] = useState('Waiting to join...');
   const [flagged, setFlagged] = useState<string[]>([]);
   const [speakingPeers, setSpeakingPeers] = useState<{ [key: string]: number }>({});
   const [timeLeft, setTimeLeft] = useState(sessionData.duration);
@@ -37,33 +36,6 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
   const localStreamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
 
-  useEffect(() => {
-    const updateDebug = () => {
-      const ctx = audioContextRef.current;
-      const tracks = localStreamRef.current?.getAudioTracks() || [];
-      const trackStatuses = tracks.map(t => `${t.label}: ${t.enabled ? 'ON' : 'OFF'} (${t.readyState})`).join(', ');
-      setDebugStatus(`Ctx: ${ctx?.state || 'N/A'} | Joined: ${joined} | Peers: ${currentPeers.length} | Tracks: ${trackStatuses}`);
-    };
-    const interval = setInterval(updateDebug, 1000);
-    return () => clearInterval(interval);
-  }, [joined, currentPeers]);
-
-  const playTestTone = () => {
-    if (!audioContextRef.current) return;
-    const ctx = audioContextRef.current;
-    if (ctx.state === 'suspended') ctx.resume();
-
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(440, ctx.currentTime);
-    gain.gain.setValueAtTime(0.1, ctx.currentTime);
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.5);
-    console.log('[CAMPFIRE] Test tone played');
-  };
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -224,9 +196,6 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
 
   return (
     <div className={`view-container campfire-view ${isEnding ? 'fading' : ''}`}>
-      <div className="debug-overlay" style={{ position: 'fixed', top: 10, left: 10, fontSize: '10px', color: '#fff', opacity: 0.7, zIndex: 2000, background: 'rgba(0,0,0,0.5)', padding: '2px 5px', borderRadius: '4px' }}>
-        {debugStatus}
-      </div>
 
       {!joined ? (
         <div className="audio-barrier">
@@ -292,9 +261,6 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
           )}
 
           <div className="controls">
-            <button className="btn btn-ghost" onClick={playTestTone} style={{ marginRight: '1rem', fontSize: '0.7rem' }}>
-              🔊 Test Speakers
-            </button>
             <button className="btn btn-ghost" onClick={onLeave}>Leave Softly</button>
           </div>
         </>
