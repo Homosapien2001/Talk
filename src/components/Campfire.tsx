@@ -89,7 +89,7 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
 
       if (isRemote) {
         const gainNode = ctx.createGain();
-        gainNode.gain.value = 2.5;
+        gainNode.gain.value = 1.0;
         source.connect(gainNode);
         gainNode.connect(ctx.destination);
       }
