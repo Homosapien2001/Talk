@@ -31,7 +31,10 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave, userN
   const myIndex = sortedPeers.indexOf(socket.id || '');
 
   // Check if local user is the host
-  const isHost = sessionData.host === socket.id;
+  // Fallback: If sessionData.host is undefined (old backend), use sortedPeers[0]
+  const isHost = sessionData.host
+    ? sessionData.host === socket.id
+    : sortedPeers[0] === socket.id;
 
   // Align "Starter" role (index 0) with the Host
   const [role, setRole] = useState(ROLES[1]);
