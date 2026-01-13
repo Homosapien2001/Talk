@@ -13,6 +13,7 @@ interface CampfireProps {
   };
   onLeave: () => void;
   userName: string;
+  preFetchedStream?: MediaStream | null;
 }
 
 const ROLES = [
@@ -22,7 +23,7 @@ const ROLES = [
 
 const CHARACTERS = ["🦊", "🐻", "🐼", "🐨", "🐸", "🐷", "🐯", "🦁", "🐧", "🦉"];
 
-const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave, userName }) => {
+const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave, userName, preFetchedStream }) => {
   const [currentPeers, setCurrentPeers] = useState(sessionData.peers);
   const [peerUsernames, setPeerUsernames] = useState<{ [key: string]: string }>({});
   const sortedPeers = [...currentPeers].sort();
@@ -121,7 +122,7 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave, userN
       socket.off('signal');
       socket.off('make-mute');
 
-      if (localStreamRef.current) {
+      if (localStreamRef.current && !preFetchedStream) {
         localStreamRef.current.getTracks().forEach(track => track.stop());
       }
       Object.values(peersRef.current).forEach(peer => peer.destroy());
@@ -176,10 +177,14 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave, userN
       audioContextRef.current = ctx;
       if (ctx.state === 'suspended') await ctx.resume();
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-        video: false
-      });
+      let stream = preFetchedStream;
+      if (!stream) {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+          video: false
+        });
+      }
+
       localStreamRef.current = stream;
       setJoined(true);
       setJoining(false);
@@ -193,7 +198,7 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave, userN
         if (peerId === socket.id) return;
 
         const isInitiator = (socket.id as string) < peerId;
-        const peer = new Peer({ initiator: isInitiator, trickle: false, stream });
+        const peer = new Peer({ initiator: isInitiator, trickle: true, stream });
 
         peer.on('signal', (signal: any) => {
           socket.emit('signal', { to: peerId, signal });
@@ -256,10 +261,9 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave, userN
       // We stop joining and let the user click retry manually.
       setJoining(false);
 
-      const stack = err?.stack || 'No stack trace';
       // Only alert if it's not a standard interaction error we catch
       if (err.name !== 'NotAllowedError') {
-        // alert(`Could not join campfire.\nError: ${err?.message}\n\nStack: ${stack}`);
+        // console.error(err);
       }
       setJoined(false);
     }

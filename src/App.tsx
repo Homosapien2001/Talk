@@ -18,6 +18,7 @@ function App() {
   const [view, setView] = useState<ViewState>('lobby');
   const [socket, setSocket] = useState<Socket | null>(null);
   const [sessionData, setSessionData] = useState<{ roomID: string, peers: string[], duration: number, host?: string } | null>(null);
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
 
   // Handle authentication state
   useEffect(() => {
@@ -28,6 +29,15 @@ function App() {
 
     return () => unsubscribe();
   }, []);
+
+  // Cleanup stream on unmount
+  useEffect(() => {
+    return () => {
+      if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, [localStream]);
 
   // Initialize socket only when authenticated
   useEffect(() => {
@@ -63,8 +73,20 @@ function App() {
     };
   }, [user]);
 
-  const handleStartFinding = () => {
+  const handleStartFinding = async () => {
     if (socket) {
+      // Pre-fetch media stream immediately on "Find Campfire"
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+          video: false
+        });
+        setLocalStream(stream);
+      } catch (err) {
+        console.error("[APP] getUserMedia failed:", err);
+        // We'll still allow them to view the ready room, but audio might fail later
+      }
+
       socket.emit('join-queue', { username: user?.displayName || 'Anonymous' });
       setView('ready');
     }
@@ -116,6 +138,7 @@ function App() {
           sessionData={sessionData}
           onLeave={handleLeaveSession}
           userName={user.displayName || 'Anonymous'}
+          preFetchedStream={localStream}
         />
       )}
       {view === 'post-session' && <PostSession onReturn={() => setView('lobby')} />}
