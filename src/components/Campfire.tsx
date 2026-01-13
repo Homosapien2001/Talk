@@ -27,13 +27,23 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave, userN
   const [peerUsernames, setPeerUsernames] = useState<{ [key: string]: string }>({});
   const sortedPeers = [...currentPeers].sort();
 
+  /* eslint-disable */
   const myIndex = sortedPeers.indexOf(socket.id || '');
-  const [role, setRole] = useState(ROLES[0]);
+
+  // Check if local user is the host
+  const isHost = sessionData.host === socket.id;
+
+  // Align "Starter" role (index 0) with the Host
+  const [role, setRole] = useState(ROLES[1]);
 
   useEffect(() => {
-    const rIndex = myIndex >= 0 ? myIndex % ROLES.length : 0;
-    setRole(ROLES[rIndex]);
-  }, [myIndex]);
+    // If I am the host, I am the Starter. Otherwise, I am a Listener.
+    if (isHost) {
+      setRole(ROLES[0]);
+    } else {
+      setRole(ROLES[1]);
+    }
+  }, [isHost]);
 
   const [joined, setJoined] = useState(false);
   const [audioBlocked, setAudioBlocked] = useState(false);
@@ -42,9 +52,6 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave, userN
   const [timeLeft, setTimeLeft] = useState(sessionData.duration);
   const [isEnding, setIsEnding] = useState(false);
   const [isMutedByHost, setIsMutedByHost] = useState(false);
-
-  // Check if local user is the host
-  const isHost = sessionData.host === socket.id;
 
   const peersRef = useRef<{ [key: string]: any }>({});
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -82,8 +89,20 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave, userN
       }
     });
 
+    // Re-broadcast username slightly after join to ensure late-comers get it
+    const broadcastInterval = setInterval(() => {
+      if (socket.connected) {
+        Object.values(peersRef.current).forEach((peer: any) => {
+          if (peer && peer.connected) {
+            peer.send(JSON.stringify({ type: 'username', name: userName }));
+          }
+        });
+      }
+    }, 2000);
+
     return () => {
       clearInterval(timer);
+      clearInterval(broadcastInterval);
       socket.off('session-ending');
       socket.off('session-dissolved');
       socket.off('participant-removed');
@@ -98,7 +117,7 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave, userN
         audioContextRef.current.close().catch(e => console.error('[CAMPFIRE] Error closing AudioContext:', e));
       }
     };
-  }, [onLeave, socket]);
+  }, [onLeave, socket, userName]);
 
   const setupVisualizer = (id: string, stream: MediaStream, isRemote: boolean = false) => {
     try {
