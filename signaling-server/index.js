@@ -61,8 +61,13 @@ io.on("connection", (socket) => {
 
         if (!roomID) {
             roomID = `room_${Date.now()}`;
-            rooms[roomID] = { participants: [], readyStates: {}, flags: {} };
-            console.log(`Created new room: ${roomID}`);
+            rooms[roomID] = {
+                participants: [],
+                readyStates: {},
+                flags: {},
+                host: socket.id // First user is the host
+            };
+            console.log(`Created new room: ${roomID} with host ${socket.id}`);
         }
 
         currentRoomID = roomID;
@@ -76,7 +81,8 @@ io.on("connection", (socket) => {
 
         io.to(roomID).emit("room-update", {
             participants: rooms[roomID].participants.length,
-            readyCount: Object.values(rooms[roomID].readyStates).filter(r => r).length
+            readyCount: Object.values(rooms[roomID].readyStates).filter(r => r).length,
+            host: rooms[roomID].host
         });
     });
 
@@ -90,7 +96,8 @@ io.on("connection", (socket) => {
 
             io.to(currentRoomID).emit("room-update", {
                 participants: rooms[currentRoomID].participants.length,
-                readyCount: currentReadyCount
+                readyCount: currentReadyCount,
+                host: rooms[currentRoomID].host
             });
 
             // Trigger session start if everyone is ready and room is full
@@ -101,7 +108,8 @@ io.on("connection", (socket) => {
                 const startData = {
                     roomID: currentRoomID,
                     peers: rooms[currentRoomID].participants,
-                    duration: sessionDuration
+                    duration: sessionDuration,
+                    host: rooms[currentRoomID].host
                 };
 
                 io.to(currentRoomID).emit("start-session", startData);
@@ -130,6 +138,19 @@ io.on("connection", (socket) => {
             }
         } else {
             console.log(`[ERROR] toggle-ready received but room ${currentRoomID} not found or stale.`);
+        }
+    });
+
+    socket.on("mute-participant", (data) => {
+        // data = { roomID, targetId }
+        const { roomID, targetId } = data;
+        const room = rooms[roomID] || rooms[currentRoomID];
+
+        if (room && room.host === socket.id) {
+            console.log(`[MODERATION] Host ${socket.id} muting ${targetId} in room ${roomID}`);
+            io.to(targetId).emit("make-mute");
+        } else {
+            console.warn(`[MODERATION] Unauthorized mute attempt by ${socket.id} in room ${roomID}`);
         }
     });
 

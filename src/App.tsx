@@ -17,7 +17,7 @@ function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [view, setView] = useState<ViewState>('lobby');
   const [socket, setSocket] = useState<Socket | null>(null);
-  const [sessionData, setSessionData] = useState<{ roomID: string, peers: string[], duration: number } | null>(null);
+  const [sessionData, setSessionData] = useState<{ roomID: string, peers: string[], duration: number, host?: string } | null>(null);
 
   // Handle authentication state
   useEffect(() => {
@@ -43,12 +43,13 @@ function App() {
     const newSocket = io(SOCKET_URL);
     setSocket(newSocket);
 
-    newSocket.on('start-session', (data: { roomID: string, peers: string[], duration?: number }) => {
+    newSocket.on('start-session', (data: { roomID: string, peers: string[], duration?: number, host?: string }) => {
       console.log('[APP] Received start-session:', data);
       setSessionData({
         roomID: data.roomID,
         peers: data.peers,
-        duration: data.duration || 15 * 60 * 1000
+        duration: data.duration || 15 * 60 * 1000,
+        host: data.host
       });
       setView('campfire');
     });

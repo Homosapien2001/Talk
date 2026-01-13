@@ -8,6 +8,7 @@ interface CampfireProps {
     roomID: string;
     peers: string[];
     duration: number;
+    host?: string;
   };
   onLeave: () => void;
   userName: string;
@@ -26,8 +27,12 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave, userN
   const sortedPeers = [...currentPeers].sort();
 
   const myIndex = sortedPeers.indexOf(socket.id || '');
-  const roleIndex = myIndex >= 0 ? myIndex % ROLES.length : 0;
-  const role = ROLES[roleIndex];
+  const [role, setRole] = useState(ROLES[0]);
+
+  useEffect(() => {
+    const rIndex = myIndex >= 0 ? myIndex % ROLES.length : 0;
+    setRole(ROLES[rIndex]);
+  }, [myIndex]);
 
   const [joined, setJoined] = useState(false);
   const [audioBlocked, setAudioBlocked] = useState(false);
@@ -35,6 +40,10 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave, userN
   const [speakingPeers, setSpeakingPeers] = useState<{ [key: string]: number }>({});
   const [timeLeft, setTimeLeft] = useState(sessionData.duration);
   const [isEnding, setIsEnding] = useState(false);
+  const [isMutedByHost, setIsMutedByHost] = useState(false);
+
+  // Check if local user is the host
+  const isHost = sessionData.host === socket.id;
 
   const peersRef = useRef<{ [key: string]: any }>({});
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -64,12 +73,21 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave, userN
       setCurrentPeers(data.newPeers);
     });
 
+    socket.on('make-mute', () => {
+      console.log('[CAMPFIRE] Muted by host');
+      setIsMutedByHost(true);
+      if (localStreamRef.current) {
+        localStreamRef.current.getAudioTracks().forEach(track => track.enabled = false);
+      }
+    });
+
     return () => {
       clearInterval(timer);
       socket.off('session-ending');
       socket.off('session-dissolved');
       socket.off('participant-removed');
       socket.off('signal');
+      socket.off('make-mute');
 
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach(track => track.stop());
@@ -134,6 +152,9 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave, userN
 
       setupVisualizer(socket.id as string, stream);
 
+      // Re-broadcast username to everyone just in case
+      // socket.emit('update-username', { roomID: sessionData.roomID, username: userName });
+
       sessionData.peers.forEach(peerId => {
         if (peerId === socket.id) return;
 
@@ -144,6 +165,7 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave, userN
           socket.emit('signal', { to: peerId, signal });
         });
 
+        // Send username immediately upoon connect
         peer.on('connect', () => {
           console.log(`[CAMPFIRE] Connected to ${peerId}, sending username: ${userName}`);
           peer.send(JSON.stringify({ type: 'username', name: userName }));
@@ -196,7 +218,6 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave, userN
 
     } catch (err: any) {
       console.error("[CAMPFIRE] handleJoin error:", err);
-      // Log the stack trace to the alert for debugging
       const stack = err?.stack || 'No stack trace';
       alert(`Could not join campfire.\nError: ${err?.message}\n\nStack: ${stack}`);
       setJoined(false);
@@ -206,6 +227,13 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave, userN
   const toggleFlag = (peerId: string) => {
     socket.emit('flag-participant', { roomID: sessionData.roomID, targetPeerID: peerId });
     setFlagged(prev => prev.includes(peerId) ? prev.filter(p => p !== peerId) : [...prev, peerId]);
+  };
+
+  const mutePeer = (peerId: string) => {
+    if (!isHost) return;
+    if (confirm(`Are you sure you want to mute ${peerUsernames[peerId] || 'this user'}? They won't be able to speak.`)) {
+      socket.emit('mute-participant', { roomID: sessionData.roomID, targetId: peerId });
+    }
   };
 
   const formatTime = (ms: number) => {
@@ -237,6 +265,7 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave, userN
                 <span className="label">Your Role</span>
                 <h3>{role.title}</h3>
                 <p className="instruction text-secondary">{role.description}</p>
+                {isHost && <span className="host-badge">👑 Speaker (Host)</span>}
               </div>
             </div>
             <div className="timer-container glass">
@@ -263,8 +292,8 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave, userN
                 ))}
               </div>
             </div>
+            {/* Main Center Avatar Ring - Purely Visual Now/Synced */}
             {sortedPeers.map((peerId, i) => {
-              const isMe = peerId === socket.id;
               const displayIndex = (i - myIndex + sortedPeers.length) % sortedPeers.length;
               const volume = speakingPeers[peerId] || 0;
               const isSpeaking = volume > 8;
@@ -273,15 +302,40 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave, userN
                 <div key={peerId} className="participant-node" style={{ transform: `rotate(${displayIndex * (360 / sortedPeers.length)}deg) translateY(-140px) rotate(-${displayIndex * (360 / sortedPeers.length)}deg)` }}>
                   <div className={`avatar ${isSpeaking ? 'speaking' : ''}`}>
                     <span className="cartoon-char">{CHARACTERS[i % CHARACTERS.length]}</span>
-                    {isMe && <span className="you-label">{userName} (You)</span>}
-                    {!isMe && <span className="peer-label">{peerUsernames[peerId] || `P${i + 1}`}</span>}
                   </div>
-                  {!isMe && (
-                    <button className={`flag-btn ${flagged.includes(peerId) ? 'active' : ''}`} onClick={() => toggleFlag(peerId)}>!</button>
-                  )}
                 </div>
               );
             })}
+          </div>
+
+          {/* New Member Strip at Bottom */}
+          <div className="member-strip-container">
+            <div className="member-strip">
+              {sortedPeers.map((peerId, i) => {
+                const isMe = peerId === socket.id;
+                const volume = speakingPeers[peerId] || 0;
+                const isSpeaking = volume > 8;
+
+                return (
+                  <div key={peerId} className={`member-card glass ${isSpeaking ? 'speaking-border' : ''}`}>
+                    <div className="member-avatar">
+                      <span className="cartoon-char-small">{CHARACTERS[i % CHARACTERS.length]}</span>
+                    </div>
+                    <div className="member-info">
+                      <span className="member-name">
+                        {isMe ? `${userName} (You)` : (peerUsernames[peerId] || `Camper ${i + 1}`)}
+                      </span>
+                      {isHost && !isMe && (
+                        <button className="mute-btn-small" onClick={() => mutePeer(peerId)} title="Mute User">
+                          🔇
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <button className="btn btn-ghost leave-btn-soft" onClick={onLeave}>Leave Softly</button>
           </div>
 
           {audioBlocked && (
@@ -298,105 +352,135 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave, userN
             </div>
           )}
 
-          <div className="controls">
-            <button className="btn btn-ghost" onClick={onLeave}>Leave Softly</button>
-          </div>
-        </>
-      )}
+          {isMutedByHost && (
+            <div className="mute-notification">
+              <span>You have been muted by the host.</span>
+            </div>
+          )}
 
-      <style dangerouslySetInnerHTML={{
-        __html: `
-        .campfire-view { position: relative; height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding-top: 10rem; padding-bottom: 2rem; overflow: hidden; background: radial-gradient(circle at center, #1a0a05 0%, #050505 100%); }
-        .top-bar { position: absolute; top: 1.5rem; left: 0; right: 0; display: flex; justify-content: center; gap: 1rem; padding: 0 1rem; z-index: 10; pointer-events: none; }
-        .session-info, .timer-container { pointer-events: auto; padding: 1rem 1.5rem; border-radius: 1.5rem; background: rgba(255,255,255,0.05); backdrop-filter: blur(15px); border: 1px solid rgba(255,255,255,0.1); width: 100%; max-width: 400px; }
-        .timer-container { width: auto; min-width: 120px; text-align: center; }
-        .role-card .label { font-size: 0.7rem; color: hsla(var(--accent-orange), 0.7); font-weight: 700; margin-bottom: 0.2rem; display: block; text-transform: uppercase; letter-spacing: 0.05em; }
-        .role-card h3 { margin: 0; color: hsl(var(--accent-orange)); font-size: 1.2rem; }
-        .role-card .instruction { margin: 0; font-size: 0.85rem; opacity: 0.8; }
-        .timer { font-family: monospace; font-size: 1.5rem; color: hsl(var(--accent-orange)); font-weight: 700; }
-        .participants-ring { position: relative; width: 340px; height: 340px; display: flex; align-items: center; justify-content: center; margin-top: auto; margin-bottom: auto; }
-        .fire-pit { position: relative; width: 100px; height: 100px; display: flex; align-items: flex-end; justify-content: center; }
-        
-        .logs { position: absolute; bottom: 0; width: 100%; height: 40px; display: flex; justify-content: center; gap: 6px; z-index: 2; }
-        .log { height: 16px; width: 60px; background: linear-gradient(to bottom, #5d4037, #3e2723); border-radius: 6px; border: 1px solid #2d1b18; box-shadow: inset 0 0 8px rgba(0,0,0,0.6), 0 2px 4px rgba(0,0,0,0.4); }
-        .log:nth-child(1) { transform: rotate(-15deg) translateY(5px); }
-        .log:nth-child(2) { transform: rotate(5deg) translateY(0); width: 65px; }
-        .log:nth-child(3) { transform: rotate(20deg) translateY(8px); position: absolute; left: 15px; }
+          <style dangerouslySetInnerHTML={{
+            __html: `
+            .campfire-view { position: relative; height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding-top: 6rem; padding-bottom: 0; overflow: hidden; background: radial-gradient(circle at center, #1a0a05 0%, #050505 100%); }
+            .top-bar { position: absolute; top: 1.5rem; left: 0; right: 0; display: flex; justify-content: center; gap: 1rem; padding: 0 1rem; z-index: 10; pointer-events: none; }
+            .session-info, .timer-container { pointer-events: auto; padding: 1rem 1.5rem; border-radius: 1.5rem; background: rgba(255,255,255,0.05); backdrop-filter: blur(15px); border: 1px solid rgba(255,255,255,0.1); width: 100%; max-width: 400px; }
+            .timer-container { width: auto; min-width: 120px; text-align: center; }
+            .host-badge { font-size: 0.7rem; color: #ffd700; border: 1px solid #ffd700; padding: 2px 6px; border-radius: 10px; margin-top: 5px; display: inline-block; }
+            .role-card .label { font-size: 0.7rem; color: hsla(var(--accent-orange), 0.7); font-weight: 700; margin-bottom: 0.2rem; display: block; text-transform: uppercase; letter-spacing: 0.05em; }
+            .role-card h3 { margin: 0; color: hsl(var(--accent-orange)); font-size: 1.2rem; }
+            .role-card .instruction { margin: 0; font-size: 0.85rem; opacity: 0.8; }
+            .timer { font-family: monospace; font-size: 1.5rem; color: hsl(var(--accent-orange)); font-weight: 700; }
+            
+            .participants-ring { position: relative; width: 340px; height: 340px; display: flex; align-items: center; justify-content: center; margin-top: auto; margin-bottom: auto; flex-grow: 1; }
+            .fire-pit { position: relative; width: 100px; height: 100px; display: flex; align-items: flex-end; justify-content: center; }
+            
+            /* ... (fire styles kept same) ... */
+            .logs { position: absolute; bottom: 0; width: 100%; height: 40px; display: flex; justify-content: center; gap: 6px; z-index: 2; }
+            .log { height: 16px; width: 60px; background: linear-gradient(to bottom, #5d4037, #3e2723); border-radius: 6px; border: 1px solid #2d1b18; box-shadow: inset 0 0 8px rgba(0,0,0,0.6), 0 2px 4px rgba(0,0,0,0.4); }
+            .log:nth-child(1) { transform: rotate(-15deg) translateY(5px); }
+            .log:nth-child(2) { transform: rotate(5deg) translateY(0); width: 65px; }
+            .log:nth-child(3) { transform: rotate(20deg) translateY(8px); position: absolute; left: 15px; }
 
-        .fire-core { 
-          width: 60px; height: 75px; 
-          background: radial-gradient(circle at 50% 10%, #fff 0%, #ffdf00 25%, #ff8c00 50%, #ff4500 100%); 
-          border-radius: 50% 50% 35% 35%; 
-          filter: blur(5px); 
-          box-shadow: 0 0 15px #ff4500, 0 0 50px rgba(255,140,0,0.4), 0 -20px 40px rgba(255,223,0,0.3);
-          animation: flicker 0.1s infinite alternate;
-          position: relative;
-          z-index: 3;
-          bottom: 15px;
-          transition: all 3s ease-out;
-        }
+            .fire-core { 
+              width: 60px; height: 75px; 
+              background: radial-gradient(circle at 50% 10%, #fff 0%, #ffdf00 25%, #ff8c00 50%, #ff4500 100%); 
+              border-radius: 50% 50% 35% 35%; 
+              filter: blur(5px); 
+              box-shadow: 0 0 15px #ff4500, 0 0 50px rgba(255,140,0,0.4), 0 -20px 40px rgba(255,223,0,0.3);
+              animation: flicker 0.1s infinite alternate;
+              position: relative;
+              z-index: 3;
+              bottom: 15px;
+              transition: all 3s ease-out;
+            }
+            .fire-pit.dying .fire-core {
+              width: 20px;
+              height: 25px;
+              background: radial-gradient(circle at 50% 30%, #ff8c00 0%, #ff4500 60%, #8b0000 100%);
+              filter: blur(3px);
+              box-shadow: 0 0 8px #ff4500, 0 0 20px rgba(255,69,0,0.2);
+              animation: dying-flicker 0.3s infinite alternate;
+              bottom: 5px;
+            }
+            .fire-pit.dying .spark { animation: float-spark 4s infinite ease-out; opacity: 0.3; }
+            .fire-pit.dying .log { background: linear-gradient(to bottom, #3e2723, #1a0e0a); box-shadow: inset 0 0 8px rgba(255,69,0,0.3), 0 0 10px rgba(255,140,0,0.2); }
+            @keyframes dying-flicker { 0% { transform: scale(1) rotate(-2deg); filter: blur(3px) brightness(0.6); opacity: 0.8; } 100% { transform: scale(0.9) rotate(2deg); filter: blur(4px) brightness(0.4); opacity: 0.6; } }
+            .sparks { position: absolute; top: -100px; left: 0; width: 100%; height: 200px; pointer-events: none; z-index: 4; }
+            .spark { position: absolute; bottom: 20px; height: 3px; background: #ffdf00; border-radius: 50%; opacity: 0; filter: blur(1px); box-shadow: 0 0 6px #ffdf00; animation: float-spark 2s infinite ease-out; }
+            @keyframes float-spark { 0% { transform: translateY(0) translateX(0) scale(1); opacity: 0; } 10% { opacity: 1; } 100% { transform: translateY(-120px) translateX(20px) scale(0); opacity: 0; } }
+            @keyframes flicker { 0% { transform: scale(1) rotate(-1deg) skewX(-2deg); filter: blur(6px) brightness(1); } 100% { transform: scale(1.08) rotate(1deg) skewX(2deg); filter: blur(5px) brightness(1.3); } }
 
-        .fire-pit.dying .fire-core {
-          width: 20px;
-          height: 25px;
-          background: radial-gradient(circle at 50% 30%, #ff8c00 0%, #ff4500 60%, #8b0000 100%);
-          filter: blur(3px);
-          box-shadow: 0 0 8px #ff4500, 0 0 20px rgba(255,69,0,0.2);
-          animation: dying-flicker 0.3s infinite alternate;
-          bottom: 5px;
-        }
+            .participant-node { position: absolute; display: flex; flex-direction: column; align-items: center; gap: 0.8rem; }
+            .avatar { width: 65px; height: 65px; display: flex; align-items: center; justify-content: center; position: relative; transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+            .cartoon-char { font-size: 3.2rem; filter: drop-shadow(0 0 8px rgba(0,0,0,0.6)); transition: transform 0.2s; }
+            .avatar.speaking { transform: scale(1.3) translateY(-10px); z-index: 100; }
+            .avatar.speaking .cartoon-char { filter: drop-shadow(0 0 15px hsla(var(--accent-orange), 0.9)); }
+            
+            .member-strip-container {
+                width: 100%;
+                background: rgba(0,0,0,0.4);
+                backdrop-filter: blur(10px);
+                padding: 1rem;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                border-top: 1px solid rgba(255,255,255,0.05);
+                z-index: 50;
+                gap: 1rem;
+            }
+            .member-strip {
+                display: flex;
+                gap: 1rem;
+                overflow-x: auto;
+                padding-bottom: 5px;
+                flex: 1;
+            }
+            .member-card {
+                display: flex;
+                align-items: center;
+                gap: 0.8rem;
+                background: rgba(255,255,255,0.05);
+                border: 1px solid rgba(255,255,255,0.1);
+                border-radius: 8px;
+                padding: 0.5rem 0.8rem;
+                min-width: 140px;
+                transition: all 0.2s;
+            }
+            .member-card.speaking-border {
+                border-color: hsl(var(--accent-orange));
+                background: rgba(255, 87, 34, 0.1);
+            }
+            .member-avatar {
+                width: 40px; height: 40px;
+                border-radius: 4px;
+                background: rgba(0,0,0,0.3);
+                display: flex; align-items: center; justify-content: center;
+                font-size: 1.5rem;
+            }
+            .member-info { display: flex; flex-direction: column; gap: 2px; }
+            .member-name { font-size: 0.85rem; font-weight: 600; color: #fff; }
+            .mute-btn-small { background: none; border: none; cursor: pointer; font-size: 1rem; opacity: 0.7; transition: opacity 0.2s; }
+            .mute-btn-small:hover { opacity: 1; }
+            .leave-btn-soft { font-size: 0.9rem; white-space: nowrap; color: red; opacity: 0.8; }
+            .mute-notification {
+                position: absolute;
+                top: 50%; left: 50%;
+                transform: translate(-50%, -50%);
+                background: rgba(220, 38, 38, 0.9);
+                color: white;
+                padding: 1rem 2rem;
+                border-radius: 8px;
+                z-index: 200;
+                pointer-events: none;
+                animation: fade-in 0.5s;
+            }
 
-        .fire-pit.dying .spark {
-          animation: float-spark 4s infinite ease-out;
-          opacity: 0.3;
-        }
-
-        .fire-pit.dying .log {
-          background: linear-gradient(to bottom, #3e2723, #1a0e0a);
-          box-shadow: inset 0 0 8px rgba(255,69,0,0.3), 0 0 10px rgba(255,140,0,0.2);
-        }
-
-        @keyframes dying-flicker {
-          0% { transform: scale(1) rotate(-2deg); filter: blur(3px) brightness(0.6); opacity: 0.8; }
-          100% { transform: scale(0.9) rotate(2deg); filter: blur(4px) brightness(0.4); opacity: 0.6; }
-        }
-
-        .sparks { position: absolute; top: -100px; left: 0; width: 100%; height: 200px; pointer-events: none; z-index: 4; }
-        .spark {
-          position: absolute;
-          bottom: 20px;
-          height: 3px;
-          background: #ffdf00;
-          border-radius: 50%;
-          opacity: 0;
-          filter: blur(1px);
-          box-shadow: 0 0 6px #ffdf00;
-          animation: float-spark 2s infinite ease-out;
-        }
-
-        @keyframes float-spark {
-          0% { transform: translateY(0) translateX(0) scale(1); opacity: 0; }
-          10% { opacity: 1; }
-          100% { transform: translateY(-120px) translateX(20px) scale(0); opacity: 0; }
-        }
-
-        @keyframes flicker {
-          0% { transform: scale(1) rotate(-1deg) skewX(-2deg); filter: blur(6px) brightness(1); }
-          100% { transform: scale(1.08) rotate(1deg) skewX(2deg); filter: blur(5px) brightness(1.3); }
-        }
-
-        .participant-node { position: absolute; display: flex; flex-direction: column; align-items: center; gap: 0.8rem; }
-        .avatar { width: 65px; height: 65px; display: flex; align-items: center; justify-content: center; position: relative; transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
-        .cartoon-char { font-size: 3.2rem; filter: drop-shadow(0 0 8px rgba(0,0,0,0.6)); transition: transform 0.2s; }
-        .avatar.speaking { transform: scale(1.3) translateY(-10px); z-index: 100; }
-        .avatar.speaking .cartoon-char { filter: drop-shadow(0 0 15px hsla(var(--accent-orange), 0.9)); }
-        .you-label, .peer-label { position: absolute; bottom: -1rem; font-size: 0.7rem; font-weight: 800; color: #fff; background: rgba(0,0,0,0.7); padding: 2px 10px; border-radius: 20px; white-space: nowrap; border: 1px solid rgba(255,255,255,0.15); box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
-        .audio-barrier { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.9); z-index: 1000; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(20px); }
-        .barrier-content { padding: 3rem; max-width: 400px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 1.5rem; border: 1px solid hsla(var(--accent-orange), 0.3); border-radius: 2rem; background: rgba(24,24,27,0.8); }
-        .icon-large { font-size: 3rem; }
-      ` }} />
-    </div>
-  );
+            .audio-barrier { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.9); z-index: 1000; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(20px); }
+            .barrier-content { padding: 3rem; max-width: 400px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 1.5rem; border: 1px solid hsla(var(--accent-orange), 0.3); border-radius: 2rem; background: rgba(24,24,27,0.8); }
+            .icon-large { font-size: 3rem; }
+            @keyframes fade-in { from { opacity: 0; transform: translate(-50%, -40%); } to { opacity: 1; transform: translate(-50%, -50%); } }
+          ` }} />
+        </div>
+      );
 };
 
-export default Campfire;
+      export default Campfire;
