@@ -152,13 +152,13 @@ io.on("connection", (socket) => {
     });
 
     socket.on("mute-participant", (data) => {
-        // data = { roomID, targetId }
-        const { roomID, targetId } = data;
+        // data = { roomID, targetId, muted: true/false }
+        const { roomID, targetId, muted } = data;
         const room = rooms[roomID] || rooms[currentRoomID];
 
         if (room && room.host === socket.id) {
-            console.log(`[MODERATION] Host ${socket.id} muting ${targetId} in room ${roomID}`);
-            io.to(targetId).emit("make-mute");
+            console.log(`[MODERATION] Host ${socket.id} setting mute: ${muted} for ${targetId} in room ${roomID}`);
+            io.to(targetId).emit("make-mute", { muted });
         } else {
             console.warn(`[MODERATION] Unauthorized mute attempt by ${socket.id} in room ${roomID}`);
         }

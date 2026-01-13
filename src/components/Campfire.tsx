@@ -56,6 +56,7 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave, userN
   const [timeLeft, setTimeLeft] = useState(sessionData.duration);
   const [isEnding, setIsEnding] = useState(false);
   const [isMutedByHost, setIsMutedByHost] = useState(false);
+  const [mutedPeers, setMutedPeers] = useState<{ [key: string]: boolean }>({});
 
   const peersRef = useRef<{ [key: string]: any }>({});
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -90,11 +91,13 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave, userN
       setCurrentPeers(data.newPeers);
     });
 
-    socket.on('make-mute', () => {
-      console.log('[CAMPFIRE] Muted by host');
-      setIsMutedByHost(true);
+    socket.on('make-mute', (data: { muted: boolean }) => {
+      console.log('[CAMPFIRE] Received mute action from host:', data);
+      setIsMutedByHost(data.muted);
       if (localStreamRef.current) {
-        localStreamRef.current.getAudioTracks().forEach(track => track.enabled = false);
+        localStreamRef.current.getAudioTracks().forEach(track => {
+          track.enabled = !data.muted;
+        });
       }
     });
 
@@ -269,9 +272,18 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave, userN
 
   const mutePeer = (peerId: string) => {
     if (!isHost) return;
-    if (confirm(`Are you sure you want to mute ${peerUsernames[peerId] || 'this user'}? They won't be able to speak.`)) {
-      socket.emit('mute-participant', { roomID: sessionData.roomID, targetId: peerId });
-    }
+    const isCurrentlyMuted = mutedPeers[peerId] || false;
+    const nextMuted = !isCurrentlyMuted;
+
+    // We can still confirm for muting, but maybe not for unmuting?
+    // Or just toggle immediately. The user said "mute/unmute button".
+    // I'll just toggle.
+    socket.emit('mute-participant', {
+      roomID: sessionData.roomID,
+      targetId: peerId,
+      muted: nextMuted
+    });
+    setMutedPeers(prev => ({ ...prev, [peerId]: nextMuted }));
   };
 
   const formatTime = (ms: number) => {
@@ -366,8 +378,12 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave, userN
                         {isMe ? `${userName} (You)` : (peerUsernames[peerId] || `Camper ${i + 1}`)}
                       </span>
                       {isHost && !isMe && (
-                        <button className="mute-btn-small" onClick={() => mutePeer(peerId)} title="Mute User">
-                          🔇
+                        <button
+                          className={`mute-btn-small ${mutedPeers[peerId] ? 'is-muted' : ''}`}
+                          onClick={() => mutePeer(peerId)}
+                          title={mutedPeers[peerId] ? "Unmute User" : "Mute User"}
+                        >
+                          {mutedPeers[peerId] ? '🔊' : '🔇'}
                         </button>
                       )}
                     </div>
@@ -498,8 +514,9 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave, userN
             }
             .member-info { display: flex; flex-direction: column; gap: 2px; }
             .member-name { font-size: 0.85rem; font-weight: 600; color: #fff; }
-            .mute-btn-small { background: none; border: none; cursor: pointer; font-size: 1rem; opacity: 0.7; transition: opacity 0.2s; }
-            .mute-btn-small:hover { opacity: 1; }
+            .mute-btn-small { background: none; border: none; cursor: pointer; font-size: 1.2rem; opacity: 0.7; transition: all 0.2s; }
+            .mute-btn-small:hover { opacity: 1; transform: scale(1.1); }
+            .mute-btn-small.is-muted { filter: grayscale(1) opacity(0.5); }
             .leave-btn-soft { font-size: 0.9rem; white-space: nowrap; color: red; opacity: 0.8; }
             .mute-notification {
                 position: absolute;

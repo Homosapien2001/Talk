@@ -160,15 +160,16 @@ const ReadyRoom: React.FC<ReadyRoomProps> = ({ socket, currentUserId }) => {
             font-size: 2.5rem;
         }
         .name-tag {
-            font-size: 0.9rem;
-            font-weight: 600;
-            color: white;
+            font-size: 1rem;
+            font-weight: 700;
+            color: #fff;
             text-align: center;
             max-width: 100%;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
             padding: 0 0.5rem;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.5);
         }
         
         .spinner {
