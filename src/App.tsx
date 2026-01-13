@@ -65,7 +65,7 @@ function App() {
 
   const handleStartFinding = () => {
     if (socket) {
-      socket.emit('join-queue');
+      socket.emit('join-queue', { username: user?.displayName || 'Anonymous' });
       setView('ready');
     }
   };

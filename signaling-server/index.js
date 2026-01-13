@@ -30,6 +30,7 @@ io.on("connection", (socket) => {
             } else {
                 io.to(targetRoomID).emit("room-update", {
                     participants: rooms[targetRoomID].participants.length,
+                    usernames: rooms[targetRoomID].usernames || {},
                     readyCount: Object.values(rooms[targetRoomID].readyStates).filter(r => r).length
                 });
 
@@ -44,7 +45,10 @@ io.on("connection", (socket) => {
         if (targetRoomID === currentRoomID) currentRoomID = null;
     };
 
-    socket.on("join-queue", () => {
+    socket.on("join-queue", (userData) => {
+        // userData can be { username: "..." } or just empty if old client
+        const username = userData?.username || "Anonymous";
+
         // Cleanup: Ensure user isn't already in a room
         if (currentRoomID) {
             console.log(`Socket ${socket.id} leaving previous room ${currentRoomID}`);
@@ -64,6 +68,7 @@ io.on("connection", (socket) => {
             rooms[roomID] = {
                 participants: [],
                 readyStates: {},
+                usernames: {},
                 flags: {},
                 host: socket.id // First user is the host
             };
@@ -74,13 +79,17 @@ io.on("connection", (socket) => {
         socket.join(roomID);
         if (!rooms[roomID].participants.includes(socket.id)) {
             rooms[roomID].participants.push(socket.id);
+            // Store username
+            if (!rooms[roomID].usernames) rooms[roomID].usernames = {};
+            rooms[roomID].usernames[socket.id] = username;
         }
         rooms[roomID].readyStates[socket.id] = false;
 
-        console.log(`Socket ${socket.id} joined ${roomID}. Participants: ${rooms[roomID].participants.length}/${ROOM_SIZE}`);
+        console.log(`Socket ${socket.id} (${username}) joined ${roomID}. Participants: ${rooms[roomID].participants.length}/${ROOM_SIZE}`);
 
         io.to(roomID).emit("room-update", {
             participants: rooms[roomID].participants.length,
+            usernames: rooms[roomID].usernames,
             readyCount: Object.values(rooms[roomID].readyStates).filter(r => r).length,
             host: rooms[roomID].host
         });
@@ -96,6 +105,7 @@ io.on("connection", (socket) => {
 
             io.to(currentRoomID).emit("room-update", {
                 participants: rooms[currentRoomID].participants.length,
+                usernames: rooms[currentRoomID].usernames,
                 readyCount: currentReadyCount,
                 host: rooms[currentRoomID].host
             });
