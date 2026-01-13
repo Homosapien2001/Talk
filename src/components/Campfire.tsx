@@ -49,6 +49,7 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave, userN
   }, [isHost]);
 
   const [joined, setJoined] = useState(false);
+  const [joining, setJoining] = useState(true); // Start as joining automatically
   const [audioBlocked, setAudioBlocked] = useState(false);
   const [flagged, setFlagged] = useState<string[]>([]);
   const [speakingPeers, setSpeakingPeers] = useState<{ [key: string]: number }>({});
@@ -60,6 +61,11 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave, userN
   const localStreamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
 
+  // Auto-join effect
+  useEffect(() => {
+    // Attempt to auto-join on mount
+    handleJoin();
+  }, []);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -160,6 +166,7 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave, userN
   };
 
   const handleJoin = async () => {
+    setJoining(true); // Ensure loading state
     try {
       const CtxClass = window.AudioContext || (window as any).webkitAudioContext;
       const ctx = new CtxClass();
@@ -172,6 +179,7 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave, userN
       });
       localStreamRef.current = stream;
       setJoined(true);
+      setJoining(false);
 
       setupVisualizer(socket.id as string, stream);
 
@@ -241,8 +249,15 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave, userN
 
     } catch (err: any) {
       console.error("[CAMPFIRE] handleJoin error:", err);
+      // If error, likely permission or autoplay.
+      // We stop joining and let the user click retry manually.
+      setJoining(false);
+
       const stack = err?.stack || 'No stack trace';
-      alert(`Could not join campfire.\nError: ${err?.message}\n\nStack: ${stack}`);
+      // Only alert if it's not a standard interaction error we catch
+      if (err.name !== 'NotAllowedError') {
+        // alert(`Could not join campfire.\nError: ${err?.message}\n\nStack: ${stack}`);
+      }
       setJoined(false);
     }
   };
@@ -273,11 +288,13 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave, userN
         <div className="audio-barrier">
           <div className="barrier-content glass float">
             <div className="icon-large">🔥</div>
-            <h3>Campfire is Ready</h3>
-            <p>Ready to join the whisper of the group?</p>
-            <button className="btn btn-primary pulse" style={{ width: '100%' }} onClick={handleJoin}>
-              Join with Audio
-            </button>
+            <h3>{joining ? 'Connecting to Fire...' : 'Campfire is Ready'}</h3>
+            <p>{joining ? 'Securing line...' : 'Ready to join the whisper of the group?'}</p>
+            {!joining && (
+              <button className="btn btn-primary pulse" style={{ width: '100%' }} onClick={handleJoin}>
+                Join with Audio
+              </button>
+            )}
           </div>
         </div>
       ) : (
