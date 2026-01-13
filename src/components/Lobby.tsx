@@ -1,19 +1,22 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect } from 'react';
+import Campfire3D from './Campfire3D';
+import { signOut } from 'firebase/auth';
+import { auth } from '../firebase';
 
 interface LobbyProps {
   onStart: () => void;
 }
 
 const Lobby: React.FC<LobbyProps> = ({ onStart }) => {
-  const [audioLevel, setAudioLevel] = useState(0);
 
-  // Mock audio visualizer for "Vibe Check"
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setAudioLevel(Math.random() * 100);
-    }, 100);
-    return () => clearInterval(interval);
-  }, []);
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+    } catch (error) {
+      console.error('Error signing out:', error);
+    }
+  };
 
   return (
     <div className="view-container lobby-view">
@@ -22,20 +25,12 @@ const Lobby: React.FC<LobbyProps> = ({ onStart }) => {
         <p className="text-secondary">Temporary, safe, anonymous voice conversations.</p>
       </header>
 
-      <div className="vibe-check glass">
-        <h3>Vibe Check</h3>
-        <p className="text-secondary">Make some noise to test your mic.</p>
+      <div className="vibe-check">
+        <h3>Setting the Vibe</h3>
+        <p className="text-secondary">Warming up the campfire...</p>
 
-        <div className="visualizer-container">
-          <div
-            className="visualizer-bar"
-            style={{ width: `${audioLevel}%`, background: `hsl(var(--accent-orange))` }}
-          ></div>
-        </div>
-
-        <div className="status-badge">
-          <span className="dot pulse"></span>
-          Mic Active
+        <div style={{ margin: '1rem 0' }}>
+          <Campfire3D />
         </div>
       </div>
 
@@ -46,6 +41,14 @@ const Lobby: React.FC<LobbyProps> = ({ onStart }) => {
         <p className="hint text-secondary">You'll join a room of 2 people once everyone is ready.</p>
       </div>
 
+      <button
+        className="btn btn-ghost"
+        onClick={handleLogout}
+        style={{ position: 'absolute', top: '20px', right: '20px' }}
+      >
+        Logout
+      </button>
+
       <style dangerouslySetInnerHTML={{
         __html: `
         .view-container {
@@ -53,9 +56,11 @@ const Lobby: React.FC<LobbyProps> = ({ onStart }) => {
           display: flex;
           flex-direction: column;
           align-items: center;
+          overflow-y: auto;
+          max-height: 100vh;
           justify-content: center;
-          gap: 3rem;
-          padding: 2rem;
+          gap: 1.5rem;
+          padding: 1rem;
           text-align: center;
         }
         .vibe-check {

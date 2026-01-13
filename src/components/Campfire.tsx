@@ -10,6 +10,7 @@ interface CampfireProps {
     duration: number;
   };
   onLeave: () => void;
+  userName: string;
 }
 
 const ROLES = [
@@ -19,8 +20,9 @@ const ROLES = [
 
 const CHARACTERS = ["🦊", "🐻", "🐼", "🐨", "🐸", "🐷", "🐯", "🦁", "🐧", "🦉"];
 
-const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => {
+const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave, userName }) => {
   const [currentPeers, setCurrentPeers] = useState(sessionData.peers);
+  const [peerUsernames, setPeerUsernames] = useState<{ [key: string]: string }>({});
   const sortedPeers = [...currentPeers].sort();
 
   const myIndex = sortedPeers.indexOf(socket.id || '');
@@ -142,6 +144,23 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
           socket.emit('signal', { to: peerId, signal });
         });
 
+        peer.on('connect', () => {
+          console.log(`[CAMPFIRE] Connected to ${peerId}, sending username: ${userName}`);
+          peer.send(JSON.stringify({ type: 'username', name: userName }));
+        });
+
+        peer.on('data', (data: any) => {
+          try {
+            const msg = JSON.parse(data.toString());
+            if (msg.type === 'username') {
+              console.log(`[CAMPFIRE] Received username from ${peerId}: ${msg.name}`);
+              setPeerUsernames(prev => ({ ...prev, [peerId]: msg.name }));
+            }
+          } catch (e) {
+            console.error('[CAMPFIRE] Error parsing peer data:', e);
+          }
+        });
+
         peer.on('stream', (remoteStream: MediaStream) => {
           console.log(`[CAMPFIRE] Stream received from ${peerId}`);
           setupVisualizer(peerId, remoteStream, true);
@@ -254,8 +273,8 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave }) => 
                 <div key={peerId} className="participant-node" style={{ transform: `rotate(${displayIndex * (360 / sortedPeers.length)}deg) translateY(-140px) rotate(-${displayIndex * (360 / sortedPeers.length)}deg)` }}>
                   <div className={`avatar ${isSpeaking ? 'speaking' : ''}`}>
                     <span className="cartoon-char">{CHARACTERS[i % CHARACTERS.length]}</span>
-                    {isMe && <span className="you-label">You</span>}
-                    {!isMe && <span className="peer-label">{`P${i + 1}`}</span>}
+                    {isMe && <span className="you-label">{userName} (You)</span>}
+                    {!isMe && <span className="peer-label">{peerUsernames[peerId] || `P${i + 1}`}</span>}
                   </div>
                   {!isMe && (
                     <button className={`flag-btn ${flagged.includes(peerId) ? 'active' : ''}`} onClick={() => toggleFlag(peerId)}>!</button>
