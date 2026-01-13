@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
+/* eslint-disable */
+import { useState, useEffect, useRef } from 'react';
 import { Socket } from 'socket.io-client';
 import Peer from 'simple-peer';
 
@@ -479,8 +480,10 @@ const Campfire: React.FC<CampfireProps> = ({ socket, sessionData, onLeave, userN
             .icon-large { font-size: 3rem; }
             @keyframes fade-in { from { opacity: 0; transform: translate(-50%, -40%); } to { opacity: 1; transform: translate(-50%, -50%); } }
           ` }} />
-        </div>
-      );
+        </>
+      )}
+    </div>
+  );
 };
 
-      export default Campfire;
+export default Campfire;
