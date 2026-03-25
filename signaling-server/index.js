@@ -1,220 +1,173 @@
-const { Server } = require("socket.io");
-const http = require("http");
+const { Server } = require('socket.io');
+const {
+    createRoom,
+    getRoom,
+    getRoomBySocket,
+    joinRoom,
+    leaveRoom,
+    transferHost,
+    claimSeat,
+    getAllRooms
+} = require('./rooms.js');
+const {
+    flagParticipant,
+    clearFlags,
+    canMute
+} = require('./moderation.js');
 
-const server = http.createServer();
-const io = new Server(server, {
+const ROOM_SIZE = 6;
+const SESSION_DURATION_MS = 15 * 60 * 1000;
+
+// Re-declaring events here to use standard JS, matching shared/events.ts
+const EVENTS = {
+    JOIN_QUEUE: 'JOIN_QUEUE',
+    ROOM_UPDATE: 'ROOM_UPDATE',
+    START_SESSION: 'START_SESSION',
+    SIGNAL: 'SIGNAL',
+    LEAVE_ROOM: 'LEAVE_ROOM',
+    TOGGLE_READY: 'TOGGLE_READY',
+    MUTE_PARTICIPANT: 'MUTE_PARTICIPANT',
+    MAKE_MUTE: 'MAKE_MUTE',
+    FLAG_PARTICIPANT: 'FLAG_PARTICIPANT',
+    PARTICIPANT_REMOVED: 'PARTICIPANT_REMOVED',
+    SESSION_ENDING: 'SESSION_ENDING',
+    SESSION_DISSOLVED: 'SESSION_DISSOLVED',
+    SEAT_CLAIMED: 'SEAT_CLAIMED',
+    SEAT_UPDATE: 'SEAT_UPDATE',
+    HOST_TRANSFERRED: 'HOST_TRANSFERRED',
+};
+
+const io = new Server(process.env.PORT || 3001, {
     cors: {
-        origin: process.env.CORS_ORIGIN || "*",
-        methods: ["GET", "POST"]
+        origin: process.env.CORS_ORIGIN || '*',
     }
 });
 
-const ROOM_SIZE = 2;
-let rooms = {}; // roomID -> { participants: [], readyStates: {} }
+io.on('connection', (socket) => {
 
-io.on("connection", (socket) => {
-    console.log("User connected:", socket.id);
-    let currentRoomID = null;
-
-    const leaveRoom = (id) => {
-        const targetRoomID = id || currentRoomID;
-        if (!targetRoomID) return;
-
-        if (rooms[targetRoomID]) {
-            rooms[targetRoomID].participants = rooms[targetRoomID].participants.filter(pid => pid !== socket.id);
-            delete rooms[targetRoomID].readyStates[socket.id];
-
-            if (rooms[targetRoomID].participants.length === 0) {
-                console.log(`Room ${targetRoomID} is empty, cleaning up.`);
-                delete rooms[targetRoomID];
-            } else {
-                io.to(targetRoomID).emit("room-update", {
-                    participants: rooms[targetRoomID].participants.length,
-                    usernames: rooms[targetRoomID].usernames || {},
-                    readyCount: Object.values(rooms[targetRoomID].readyStates).filter(r => r).length
-                });
-
-                // Also notify campfire peers
-                io.to(targetRoomID).emit("participant-removed", {
-                    peerId: socket.id,
-                    newPeers: rooms[targetRoomID].participants
-                });
-            }
-        }
-        socket.leave(targetRoomID);
-        if (targetRoomID === currentRoomID) currentRoomID = null;
-    };
-
-    socket.on("join-queue", (userData) => {
-        // userData can be { username: "..." } or just empty if old client
-        const username = userData?.username || "Anonymous";
-
-        // Cleanup: Ensure user isn't already in a room
-        if (currentRoomID) {
-            console.log(`Socket ${socket.id} leaving previous room ${currentRoomID}`);
-            leaveRoom(currentRoomID);
+    socket.on(EVENTS.JOIN_QUEUE, ({ username }) => {
+        let existingRoom = getRoomBySocket(socket.id);
+        if (existingRoom) {
+            leaveRoom(socket.id);
         }
 
-        let roomID = null;
-        for (const id in rooms) {
-            if (rooms[id].participants.length < ROOM_SIZE && !rooms[id].participants.includes(socket.id)) {
-                roomID = id;
+        let targetRoom = null;
+        for (const room of getAllRooms().values()) {
+            if (room.seats.some(s => s.socketId === null)) {
+                targetRoom = room;
                 break;
             }
         }
 
-        if (!roomID) {
-            roomID = `room_${Date.now()}`;
-            rooms[roomID] = {
-                participants: [],
-                readyStates: {},
-                usernames: {},
-                flags: {},
-                host: socket.id // First user is the host
-            };
-            console.log(`Created new room: ${roomID} with host ${socket.id}`);
+        if (!targetRoom) {
+            targetRoom = createRoom(Date.now().toString(), socket.id);
         }
 
-        currentRoomID = roomID;
-        socket.join(roomID);
-        if (!rooms[roomID].participants.includes(socket.id)) {
-            rooms[roomID].participants.push(socket.id);
-            // Store username
-            if (!rooms[roomID].usernames) rooms[roomID].usernames = {};
-            rooms[roomID].usernames[socket.id] = username;
+        const joinResult = joinRoom(targetRoom.roomID, socket.id, username);
+        if (!joinResult) {
+            socket.emit('queue-full');
+            return;
         }
-        rooms[roomID].readyStates[socket.id] = false;
 
-        console.log(`Socket ${socket.id} (${username}) joined ${roomID}. Participants: ${rooms[roomID].participants.length}/${ROOM_SIZE}`);
-
-        io.to(roomID).emit("room-update", {
-            participants: rooms[roomID].participants.length,
-            usernames: rooms[roomID].usernames,
-            readyCount: Object.values(rooms[roomID].readyStates).filter(r => r).length,
-            host: rooms[roomID].host
-        });
+        socket.join(targetRoom.roomID);
+        io.to(targetRoom.roomID).emit(EVENTS.ROOM_UPDATE, { seats: targetRoom.seats, host: targetRoom.host });
     });
 
-    socket.on("toggle-ready", (isReady) => {
-        if (currentRoomID && rooms[currentRoomID]) {
-            rooms[currentRoomID].readyStates[socket.id] = isReady;
+    socket.on(EVENTS.SEAT_CLAIMED, ({ seatIndex }) => {
+        const room = getRoomBySocket(socket.id);
+        if (!room) return;
 
-            const currentReadyCount = Object.values(rooms[currentRoomID].readyStates).filter(r => r).length;
+        const success = claimSeat(room.roomID, socket.id, seatIndex);
+        if (!success) {
+            socket.emit('seat-taken');
+        } else {
+            io.to(room.roomID).emit(EVENTS.SEAT_UPDATE, { seats: room.seats });
+        }
+    });
 
-            console.log(`Room ${currentRoomID}: ${currentReadyCount}/${rooms[currentRoomID].participants.length} users ready`);
+    socket.on(EVENTS.TOGGLE_READY, (isReady) => {
+        const room = getRoomBySocket(socket.id);
+        if (!room) return;
 
-            io.to(currentRoomID).emit("room-update", {
-                participants: rooms[currentRoomID].participants.length,
-                usernames: rooms[currentRoomID].usernames,
-                readyCount: currentReadyCount,
-                host: rooms[currentRoomID].host
+        room.readyStates[socket.id] = isReady;
+
+        const occupiedSeats = room.seats.filter(s => s.socketId !== null);
+        const readyCount = occupiedSeats.filter(s => room.readyStates[s.socketId] === true).length;
+
+        io.to(room.roomID).emit(EVENTS.ROOM_UPDATE, { seats: room.seats, host: room.host });
+
+        if (occupiedSeats.length === ROOM_SIZE && readyCount === ROOM_SIZE) {
+            io.to(room.roomID).emit(EVENTS.START_SESSION, {
+                roomID: room.roomID,
+                seats: room.seats,
+                host: room.host,
+                duration: SESSION_DURATION_MS
             });
 
-            // Trigger session start if everyone is ready and room is full
-            if (rooms[currentRoomID].participants.length >= ROOM_SIZE && currentReadyCount >= ROOM_SIZE) {
-                console.log(`[SESSION] Room ${currentRoomID}: Everyone ready. Emitting start-session to ${rooms[currentRoomID].participants.length} peers.`);
-                const sessionDuration = 15 * 60 * 1000; // 15 minutes
+            setTimeout(() => {
+                io.to(room.roomID).emit(EVENTS.SESSION_ENDING, { remaining: 2 * 60 * 1000 });
+            }, SESSION_DURATION_MS - 2 * 60 * 1000);
 
-                const startData = {
-                    roomID: currentRoomID,
-                    peers: rooms[currentRoomID].participants,
-                    duration: sessionDuration,
-                    host: rooms[currentRoomID].host
-                };
-
-                io.to(currentRoomID).emit("start-session", startData);
-                console.log(`[SESSION] start-session emitted with data:`, JSON.stringify(startData));
-
-                // Cleanup room structure to prevent further joins or ready toggles during session
-                // We keep it in a separate sessions object if we need persistence, but for now we just let it run
-                const sessionRoomID = currentRoomID;
-
-                // Session lifecycle timers
-                setTimeout(() => {
-                    console.log(`[SESSION] Room ${sessionRoomID}: 2 minutes remaining notification.`);
-                    io.to(sessionRoomID).emit("session-ending", { remaining: 2 * 60 * 1000 });
-                }, sessionDuration - 2 * 60 * 1000);
-
-                setTimeout(() => {
-                    console.log(`[SESSION] Room ${sessionRoomID}: Session dissolved.`);
-                    io.to(sessionRoomID).emit("session-dissolved");
-                    if (rooms[sessionRoomID]) {
-                        delete rooms[sessionRoomID];
-                    }
-                }, sessionDuration);
-
-                // Optional: Prevent anyone else from joining this specific room ID now that it's "live"
-                // delete rooms[currentRoomID]; // But be careful about readyStates if needed
-            }
-        } else {
-            console.log(`[ERROR] toggle-ready received but room ${currentRoomID} not found or stale.`);
-        }
-    });
-
-    socket.on("mute-participant", (data) => {
-        // data = { roomID, targetId, muted: true/false }
-        const { roomID, targetId, muted } = data;
-        const room = rooms[roomID] || rooms[currentRoomID];
-
-        if (room && room.host === socket.id) {
-            console.log(`[MODERATION] Host ${socket.id} setting mute: ${muted} for ${targetId} in room ${roomID}`);
-            io.to(targetId).emit("make-mute", { muted });
-        } else {
-            console.warn(`[MODERATION] Unauthorized mute attempt by ${socket.id} in room ${roomID}`);
-        }
-    });
-
-    socket.on("flag-participant", (targetId) => {
-        if (currentRoomID && rooms[currentRoomID] && rooms[currentRoomID].flags) {
-            if (!rooms[currentRoomID].flags[targetId]) {
-                rooms[currentRoomID].flags[targetId] = new Set();
-            }
-            rooms[currentRoomID].flags[targetId].add(socket.id);
-
-            const flagCount = rooms[currentRoomID].flags[targetId].size;
-            const threshold = Math.max(2, Math.floor(ROOM_SIZE / 2) + 1); // Logic: Simple majority or at least 2
-
-            if (flagCount >= threshold) {
-                // Silent Kick
-                console.log(`Kicking participant ${targetId} from ${currentRoomID} due to flags (${flagCount}/${threshold})`);
-
-                const targetSocket = io.sockets.sockets.get(targetId);
-                if (targetSocket) {
-                    targetSocket.emit("session-dissolved"); // Send them back to lobby
+            setTimeout(() => {
+                io.to(room.roomID).emit(EVENTS.SESSION_DISSOLVED);
+                const currentRoom = getRoom(room.roomID);
+                if (currentRoom) {
+                    getAllRooms().delete(room.roomID);
                 }
+            }, SESSION_DURATION_MS);
+        }
+    });
 
-                // Logic to remove them from room
-                if (rooms[currentRoomID]) {
-                    rooms[currentRoomID].participants = rooms[currentRoomID].participants.filter(id => id !== targetId);
-                    delete rooms[currentRoomID].readyStates[targetId];
-                    delete rooms[currentRoomID].flags[targetId];
+    socket.on(EVENTS.SIGNAL, ({ to, signal }) => {
+        io.to(to).emit(EVENTS.SIGNAL, { from: socket.id, signal });
+    });
 
-                    io.to(currentRoomID).emit("participant-removed", {
-                        peerId: targetId,
-                        newPeers: rooms[currentRoomID].participants
-                    });
-                }
+    socket.on(EVENTS.MUTE_PARTICIPANT, ({ roomID, targetId, muted }) => {
+        if (!canMute(roomID, socket.id)) return;
+        io.to(targetId).emit(EVENTS.MAKE_MUTE, { muted });
+    });
+
+    socket.on(EVENTS.FLAG_PARTICIPANT, ({ roomID, targetPeerID }) => {
+        const { shouldKick } = flagParticipant(roomID, socket.id, targetPeerID);
+        if (shouldKick) {
+            io.to(targetPeerID).emit(EVENTS.SESSION_DISSOLVED);
+            const leaveResult = leaveRoom(targetPeerID);
+            clearFlags(roomID, targetPeerID);
+            if (leaveResult) {
+                io.to(roomID).emit(EVENTS.PARTICIPANT_REMOVED, {
+                    socketId: targetPeerID,
+                    seats: leaveResult.updatedRoom.seats
+                });
             }
         }
     });
 
-    // WebRTC Signaling Relay
-    socket.on("signal", (data) => {
-        io.to(data.to).emit("signal", {
-            from: socket.id,
-            signal: data.signal
+    socket.on(EVENTS.LEAVE_ROOM, () => {
+        handleDisconnect();
+    });
+
+    socket.on('disconnect', () => {
+        handleDisconnect();
+    });
+
+    function handleDisconnect() {
+        const leaveResult = leaveRoom(socket.id);
+        if (!leaveResult) return;
+
+        const { roomID, updatedRoom } = leaveResult;
+        const occupiedCount = updatedRoom.seats.filter(s => s.socketId !== null).length;
+        if (occupiedCount === 0) return;
+
+        io.to(roomID).emit(EVENTS.PARTICIPANT_REMOVED, {
+            socketId: socket.id,
+            seats: updatedRoom.seats
         });
-    });
 
-    socket.on("leave-room", () => leaveRoom());
-
-    socket.on("disconnect", () => {
-        console.log("User disconnected:", socket.id);
-        leaveRoom();
-    });
-});
-
-const PORT = process.env.PORT || 3001;
-server.listen(PORT, () => {
-    console.log(`Signaling server running on port ${PORT}`);
+        if (updatedRoom.host === socket.id) {
+            const newHost = transferHost(roomID);
+            if (newHost) {
+                io.to(roomID).emit(EVENTS.HOST_TRANSFERRED, { newHost });
+            }
+        }
+    }
 });

@@ -1,0 +1,40 @@
+
+> talk-app@0.0.0 build
+> vite build
+
+[36mvite v7.3.1 [32mbuilding client environment for production...[36m[39m
+transforming...
+[32m✓[39m 20 modules transformed.
+[31m✗[39m Build failed in 175ms
+[31merror during build:
+[31m[vite:esbuild] Transform failed with 2 errors:
+D:/NOYEL/Talk/src/components/Campfire.tsx:482:10: ERROR: Unexpected closing "div" tag does not match opening fragment tag
+D:/NOYEL/Talk/src/components/Campfire.tsx:483:7: ERROR: Expected "}" but found ";"[31m
+file: [36mD:/NOYEL/Talk/src/components/Campfire.tsx:482:10[31m
+[33m
+[33mUnexpected closing "div" tag does not match opening fragment tag[33m
+480 |              @keyframes fade-in { from { opacity: 0; transform: translate(-50%, -40%); } to { opacity: 1; transform: t...
+481 |            ` }} />
+482 |          </div>
+    |            ^
+483 |        );
+484 |  };
+
+[33mExpected "}" but found ";"[33m
+481 |            ` }} />
+482 |          </div>
+483 |        );
+    |         ^
+484 |  };
+485 |  
+[31m
+    at failureErrorWithLog (D:\NOYEL\Talk\node_modules\esbuild\lib\main.js:1467:15)
+    at D:\NOYEL\Talk\node_modules\esbuild\lib\main.js:736:50
+    at responseCallbacks.<computed> (D:\NOYEL\Talk\node_modules\esbuild\lib\main.js:603:9)
+    at handleIncomingPacket (D:\NOYEL\Talk\node_modules\esbuild\lib\main.js:658:12)
+    at Socket.readFromStdout (D:\NOYEL\Talk\node_modules\esbuild\lib\main.js:581:7)
+    at Socket.emit (node:events:508:28)
+    at addChunk (node:internal/streams/readable:559:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:510:3)
+    at Readable.push (node:internal/streams/readable:390:5)
+    at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)[39m

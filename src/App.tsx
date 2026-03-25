@@ -1,149 +1,73 @@
-import { useState, useEffect } from 'react';
-import { io, Socket } from 'socket.io-client';
-import { onAuthStateChanged, type User } from 'firebase/auth';
+import { useEffect } from 'react';
+import { io } from 'socket.io-client';
+import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from './firebase';
+import useAppStore from './store/appStore';
+import { EVENTS } from '../shared/events';
+
 import Auth from './components/Auth';
 import Lobby from './components/Lobby';
-import ReadyRoom from './components/ReadyRoom';
-import Campfire from './components/Campfire';
+import Queue from './components/Queue';
+import WalkIn from './components/WalkIn';
+import Session from './components/Session';
 import PostSession from './components/PostSession';
 
-type ViewState = 'lobby' | 'ready' | 'campfire' | 'post-session';
-
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001';
-
 function App() {
-  const [user, setUser] = useState<User | null>(null);
-  const [authLoading, setAuthLoading] = useState(true);
-  const [view, setView] = useState<ViewState>('lobby');
-  const [socket, setSocket] = useState<Socket | null>(null);
-  const [sessionData, setSessionData] = useState<{ roomID: string, peers: string[], duration: number, host?: string } | null>(null);
-  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const { view, user, socket, setView, setSocket, setUser, setSession } = useAppStore();
 
-  // Handle authentication state
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      setAuthLoading(false);
+      if (currentUser) {
+        setUser({
+          uid: currentUser.uid,
+          displayName: currentUser.displayName || 'Anonymous',
+          email: currentUser.email || ''
+        });
+      } else {
+        setUser(null);
+        setView('auth');
+      }
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [setUser, setView]);
 
-  // Cleanup stream on unmount
   useEffect(() => {
-    return () => {
-      if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
-      }
-    };
-  }, [localStream]);
+    if (user) {
+      const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001';
+      const newSocket = io(SOCKET_URL);
+      setSocket(newSocket);
 
-  // Initialize socket only when authenticated
-  useEffect(() => {
-    if (!user) {
-      // Close socket if user logs out
+      newSocket.on(EVENTS.START_SESSION, (data) => {
+        setSession(data);
+        setView('walkin');
+      });
+
+      newSocket.on(EVENTS.SESSION_DISSOLVED, () => {
+        setView('post');
+      });
+
+      return () => {
+        newSocket.disconnect();
+        setSocket(null);
+      };
+    } else {
       if (socket) {
-        socket.close();
+        socket.disconnect();
         setSocket(null);
       }
-      return;
     }
+  }, [user, setSocket, setSession, setView]);
 
-    const newSocket = io(SOCKET_URL);
-    setSocket(newSocket);
-
-    newSocket.on('start-session', (data: { roomID: string, peers: string[], duration?: number, host?: string }) => {
-      console.log('[APP] Received start-session:', data);
-      setSessionData({
-        roomID: data.roomID,
-        peers: data.peers,
-        duration: data.duration || 15 * 60 * 1000,
-        host: data.host
-      });
-      setView('campfire');
-    });
-
-    newSocket.on('session-dissolved', () => {
-      setView('post-session');
-    });
-
-    return () => {
-      newSocket.close();
-    };
-  }, [user]);
-
-  const handleStartFinding = async () => {
-    if (socket) {
-      // Pre-fetch media stream immediately on "Find Campfire"
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-          video: false
-        });
-        setLocalStream(stream);
-      } catch (err) {
-        console.error("[APP] getUserMedia failed:", err);
-        // We'll still allow them to view the ready room, but audio might fail later
-      }
-
-      socket.emit('join-queue', { username: user?.displayName || 'Anonymous' });
-      setView('ready');
-    }
-  };
-
-  const handleLeaveSession = () => {
-    setView('post-session');
-  };
-
-  // Show loading state while checking auth
-  if (authLoading) {
-    return (
-      <div className="app" style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        height: '100vh',
-        color: 'hsl(var(--text-primary))'
-      }}>
-        <div style={{ textAlign: 'center' }}>
-          <div className="loading-spinner" style={{
-            width: '40px',
-            height: '40px',
-            border: '4px solid rgba(255, 255, 255, 0.1)',
-            borderTopColor: 'hsl(var(--accent-orange))',
-            borderRadius: '50%',
-            animation: 'spin 0.8s linear infinite',
-            margin: '0 auto 16px'
-          }}></div>
-          <p>Loading...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Show Auth component if not authenticated
-  if (!user) {
-    return <Auth />;
-  }
-
-  // Show main app if authenticated
   return (
     <div className="app">
-      {view === 'lobby' && <Lobby onStart={handleStartFinding} />}
-      {view === 'ready' && socket && <ReadyRoom socket={socket} />}
-      {view === 'campfire' && socket && sessionData && (
-        <Campfire
-          socket={socket}
-          sessionData={sessionData}
-          onLeave={handleLeaveSession}
-          userName={user.displayName || 'Anonymous'}
-          preFetchedStream={localStream}
-        />
-      )}
-      {view === 'post-session' && <PostSession onReturn={() => setView('lobby')} />}
+      {view === 'auth' && <Auth />}
+      {view === 'lobby' && <Lobby />}
+      {view === 'queue' && <Queue />}
+      {view === 'walkin' && <WalkIn />}
+      {view === 'session' && <Session />}
+      {view === 'post' && <PostSession onReturn={() => setView('lobby')} />}
 
-      {/* Visual background details */}
       <div className="bg-glow"></div>
     </div>
   );

@@ -2,14 +2,12 @@ import React, { useEffect } from 'react';
 import Campfire3D from './Campfire3D';
 import { signOut } from 'firebase/auth';
 import { auth } from '../firebase';
-import useAppStore from '../store/appStore';
 
-const Lobby: React.FC = () => {
-  const setView = useAppStore(state => state.setView);
+interface LobbyProps {
+  onStart: () => void;
+}
 
-  const onStart = () => {
-    setView('queue');
-  };
+const Lobby: React.FC<LobbyProps> = ({ onStart }) => {
 
 
   const handleLogout = async () => {
